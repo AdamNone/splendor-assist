@@ -23,6 +23,9 @@ type DraftNoble = {
 type DraftData = {
   cards: DraftCard[];
   nobles: DraftNoble[];
+  // Tool-internal: IDs the user has explicitly marked as verified against the
+  // physical deck. Validation is suppressed for these. Not exported.
+  verifiedIds: string[];
 };
 
 const COLORS: Color[] = ['white', 'blue', 'green', 'red', 'black'];
@@ -89,7 +92,7 @@ const validateCard = (c: DraftCard): string[] => {
 
   if (c.cost[c.bonus] > 0) {
     issues.push(
-      `Cost includes ${c.cost[c.bonus]} ${c.bonus} (own bonus color — unusual in standard Splendor)`,
+      `Cost includes ${c.cost[c.bonus]} ${c.bonus} (own bonus color — uncommon, verify against the physical card)`,
     );
   }
 
@@ -212,6 +215,9 @@ const loadData = (): DraftData => {
         return {
           cards: Array.isArray(parsed.cards) ? (parsed.cards as DraftCard[]) : [],
           nobles: Array.isArray(parsed.nobles) ? (parsed.nobles as DraftNoble[]) : [],
+          verifiedIds: Array.isArray(parsed.verifiedIds)
+            ? (parsed.verifiedIds as string[])
+            : [],
         };
       }
     }
@@ -219,13 +225,13 @@ const loadData = (): DraftData => {
     if (legacy !== null) {
       const parsed = JSON.parse(legacy);
       if (Array.isArray(parsed)) {
-        return { cards: parsed as DraftCard[], nobles: [] };
+        return { cards: parsed as DraftCard[], nobles: [], verifiedIds: [] };
       }
     }
   } catch {
     /* fall through */
   }
-  return { cards: [], nobles: [] };
+  return { cards: [], nobles: [], verifiedIds: [] };
 };
 
 export default function App() {
@@ -287,11 +293,14 @@ export default function App() {
 
   const submitCard = () => {
     if (editingId !== null) {
+      const targetId = editingId;
       setData((prev) => ({
         ...prev,
         cards: prev.cards.map((c) =>
-          c.id === editingId ? { ...c, tier, bonus, prestige, cost: { ...cost } } : c,
+          c.id === targetId ? { ...c, tier, bonus, prestige, cost: { ...cost } } : c,
         ),
+        // Editing clears verified — the new state must be re-validated.
+        verifiedIds: prev.verifiedIds.filter((id) => id !== targetId),
       }));
       setEditingId(null);
     } else {
@@ -310,13 +319,15 @@ export default function App() {
 
   const submitNoble = () => {
     if (editingId !== null) {
+      const targetId = editingId;
       setData((prev) => ({
         ...prev,
         nobles: prev.nobles.map((n) =>
-          n.id === editingId
+          n.id === targetId
             ? { ...n, prestige: noblePrestige, requirement: { ...requirement } }
             : n,
         ),
+        verifiedIds: prev.verifiedIds.filter((id) => id !== targetId),
       }));
       setEditingId(null);
     } else {
@@ -329,6 +340,14 @@ export default function App() {
     }
     resetNobleForm();
     submitRef.current?.blur();
+  };
+
+  const markVerified = (id: string) => {
+    setData((prev) =>
+      prev.verifiedIds.includes(id)
+        ? prev
+        : { ...prev, verifiedIds: [...prev.verifiedIds, id] },
+    );
   };
 
   const submit = () => {
@@ -356,12 +375,20 @@ export default function App() {
 
   const removeCard = (id: string) => {
     if (editingId === id) cancelEdit();
-    setData((prev) => ({ ...prev, cards: prev.cards.filter((c) => c.id !== id) }));
+    setData((prev) => ({
+      ...prev,
+      cards: prev.cards.filter((c) => c.id !== id),
+      verifiedIds: prev.verifiedIds.filter((vid) => vid !== id),
+    }));
   };
 
   const removeNoble = (id: string) => {
     if (editingId === id) cancelEdit();
-    setData((prev) => ({ ...prev, nobles: prev.nobles.filter((n) => n.id !== id) }));
+    setData((prev) => ({
+      ...prev,
+      nobles: prev.nobles.filter((n) => n.id !== id),
+      verifiedIds: prev.verifiedIds.filter((vid) => vid !== id),
+    }));
   };
 
   const switchMode = (next: Mode) => {
@@ -416,10 +443,16 @@ export default function App() {
   const headingLabel = editingId !== null ? 'Editing' : 'Next';
 
   // Validation — recomputed every render. Cheap; data is small.
+  // Verified entries have their warnings suppressed.
+  const verified = new Set(data.verifiedIds);
   const cardIssues: Record<string, string[]> = {};
-  for (const c of data.cards) cardIssues[c.id] = validateCard(c);
+  for (const c of data.cards) {
+    cardIssues[c.id] = verified.has(c.id) ? [] : validateCard(c);
+  }
   const nobleIssues: Record<string, string[]> = {};
-  for (const n of data.nobles) nobleIssues[n.id] = validateNoble(n);
+  for (const n of data.nobles) {
+    nobleIssues[n.id] = verified.has(n.id) ? [] : validateNoble(n);
+  }
   const globalIssues = validateGlobal(data);
   const cardsFlagged = Object.values(cardIssues).filter((arr) => arr.length > 0).length;
   const noblesFlagged = Object.values(nobleIssues).filter((arr) => arr.length > 0).length;
@@ -842,21 +875,31 @@ export default function App() {
                               {issues.map((s, i) => (
                                 <div key={i}>⚠ {s}</div>
                               ))}
-                              {hasSelfBonus && (
+                              <div className="issues-actions">
+                                {hasSelfBonus && (
+                                  <button
+                                    type="button"
+                                    className="suggest-fix"
+                                    onClick={() =>
+                                      startEditCard({
+                                        ...c,
+                                        cost: { ...c.cost, [c.bonus]: 0 },
+                                      })
+                                    }
+                                    title={`Open ${c.id} in edit mode with the ${c.bonus} column pre-zeroed so you can re-enter from the card`}
+                                  >
+                                    Quick fix: clear {c.bonus} column &amp; edit
+                                  </button>
+                                )}
                                 <button
                                   type="button"
-                                  className="suggest-fix"
-                                  onClick={() =>
-                                    startEditCard({
-                                      ...c,
-                                      cost: { ...c.cost, [c.bonus]: 0 },
-                                    })
-                                  }
-                                  title={`Open ${c.id} in edit mode with the ${c.bonus} column pre-zeroed so you can re-enter from the card`}
+                                  className="mark-verified"
+                                  onClick={() => markVerified(c.id)}
+                                  title="I have checked this against the physical card. Suppress these warnings for this entry."
                                 >
-                                  Quick fix: clear {c.bonus} column &amp; edit
+                                  ✓ Mark verified
                                 </button>
-                              )}
+                              </div>
                             </td>
                           </tr>,
                         );
@@ -937,6 +980,16 @@ export default function App() {
                             {issues.map((s, i) => (
                               <div key={i}>⚠ {s}</div>
                             ))}
+                            <div className="issues-actions">
+                              <button
+                                type="button"
+                                className="mark-verified"
+                                onClick={() => markVerified(n.id)}
+                                title="I have checked this against the physical card. Suppress these warnings for this entry."
+                              >
+                                ✓ Mark verified
+                              </button>
+                            </div>
                           </td>
                         </tr>,
                       );
@@ -976,7 +1029,7 @@ export default function App() {
                 'Delete all entered cards AND nobles? This cannot be undone.',
               )
             ) {
-              setData({ cards: [], nobles: [] });
+              setData({ cards: [], nobles: [], verifiedIds: [] });
               cancelEdit();
             }
           }}
