@@ -162,8 +162,72 @@ Roughly: `max over opponents of (15 - their_prestige) inverted`. Closer opponent
 **Done:**
 - Data analysis on real card + noble data (F1–F5 above)
 - Evaluator feature decomposition sketch
+- Phase 0 engine spillover closed (`apply` / `applyReveal` / `terminal` / `winner` / `initialState`)
+- v1 evaluator (`prestige + 0.5 × bonus_count`) + greedy agent + tournament harness
+- v2 evaluator (adds noble proximity)
 
-**Next:**
-- Close Phase 0 spillover so we can actually score states
-- Implement `evaluate` v1 with simple weights
-- Build tournament harness, measure
+## Experiments
+
+We A/B test each new feature against the previous evaluator over many
+self-play games to verify it actually helps before keeping it.
+
+### Experiment 1 — baseline (v1) vs random
+
+Hypothesis: even the simplest scoring function should beat random play.
+
+**Result (10 games, seed 42):** greedy v1 won 10/10. Baseline confirmed.
+
+### Experiment 2 — v2 (noble proximity) vs v1 baseline
+
+Hypothesis from F4: nobles are 3 prestige each, claimed mid-game. With
+only `prestige + bonus_count`, greedy has no signal that a noble is
+*reachable* until the moment it claims one — too late to plan toward.
+Adding a feature that scores partial progress toward each unclaimed
+noble (linear, 3 × proximity_ratio per noble) should give the agent
+7+ turns of forward-looking incentive to align bonuses with a noble.
+
+**Implementation:** `nobleProximityFeature` in `src/game/evaluate.ts`.
+For each unclaimed noble in `state.nobles`, sums:
+
+```
+proximity_ratio = (max_need - remaining_need) / max_need
+score          += 3 * proximity_ratio
+```
+
+Weight 1.0 in `FEATURES_V2`.
+
+**Result (50 games, seed 7):**
+
+| Agent              | Wins | %    |
+|---|---|---|
+| greedy(v2)         | 26   | 52.0 |
+| greedy(baseline)   | 16   | 32.0 |
+| draws              | 8    | 16.0 |
+
+v2 advantage: **+10 games, +20 percentage points.** Hypothesis
+confirmed; v2 keeps the slot. Tournament regression test in
+`tournament.test.ts` asserts v2 wins at least as many head-to-head
+games as baseline; the bar is conservative so RNG variance doesn't
+flake.
+
+Try it yourself:
+
+```
+npm run compare 50 7    # head-to-head, 50 games, seed 7
+npm run play            # one game, narrated
+npm run match 30        # greedy vs random, 30 games
+```
+
+## Next features queued (in expected impact order)
+
+1. **Color concentration bonus** (F3) — reward `max(bonuses)` so a
+   tall white tower beats a flat one of each. Should help T2/T3
+   anchor cards become reachable.
+2. **Engine value with color demand** (F5) — replace the flat
+   `0.5 * bonus_count` with `Σ bonuses[c] * remaining_demand[c]` where
+   demand is computed from cards still on the board. Should make the
+   evaluator phase-aware automatically.
+3. **Opponent threat** — penalty proportional to opponents' prestige.
+   Triggers blocking moves when the game is close.
+4. **Gem hand-cap pressure** — score gems above ~7 at a discount
+   (close to forced discard). Discourages hoarding.

@@ -1,5 +1,6 @@
 import { greedyAgent, randomAgent } from '../game/agents';
 import { applyTurn, isTerminal, winner } from '../game/apply';
+import { evaluateBaseline, evaluateV2 } from '../game/evaluate';
 import { legalActions } from '../game/legalActions';
 import { formatGameEnd, formatPlayer, narrate } from '../game/narrate';
 import { initialState, seededRng } from '../game/setup';
@@ -63,10 +64,35 @@ const playTournament = (games: number, seed: number): void => {
   console.log(`elapsed       : ${elapsed}s`);
 };
 
+const compare = (games: number, seed: number): void => {
+  console.log(`A/B: greedy(v2) vs greedy(baseline) | ${games} games | seed=${seed}\n`);
+  const start = Date.now();
+  const result = playMatch(greedyAgent(evaluateV2), greedyAgent(evaluateBaseline), {
+    games,
+    rng: seededRng(seed),
+  });
+  const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+  const total = result.aWins + result.bWins + result.draws;
+  const pct = (n: number) => ((100 * n) / total).toFixed(1);
+  console.log(`v2       wins: ${result.aWins} (${pct(result.aWins)}%)`);
+  console.log(`baseline wins: ${result.bWins} (${pct(result.bWins)}%)`);
+  console.log(`draws        : ${result.draws} (${pct(result.draws)}%)`);
+  console.log(`avg turns/game: ${(result.totalTurns / total).toFixed(1)}`);
+  console.log(`elapsed      : ${elapsed}s`);
+  console.log(
+    `\nv2 advantage: ${(result.aWins - result.bWins).toString()} games (` +
+      `${(100 * (result.aWins - result.bWins) / total).toFixed(1)} pp).`,
+  );
+};
+
 if (mode === 'match') {
   const games = intArg(args[1], 30);
   const seed = intArg(args[2], 42);
   playTournament(games, seed);
+} else if (mode === 'compare') {
+  const games = intArg(args[1], 30);
+  const seed = intArg(args[2], 42);
+  compare(games, seed);
 } else {
   const seed = intArg(args[1], 42);
   const numPlayers = (intArg(args[2], 2) as 2 | 3 | 4);

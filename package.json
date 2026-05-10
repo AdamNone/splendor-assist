@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc -b --noEmit",
     "play": "tsx src/cli/play.ts",
-    "match": "tsx src/cli/play.ts match"
+    "match": "tsx src/cli/play.ts match",
+    "compare": "tsx src/cli/play.ts compare"
   },
   "dependencies": {
     "react": "^19.2.5",

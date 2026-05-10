@@ -1,33 +1,96 @@
 import { COLORS } from './types';
-import type { GameState, PlayerIndex } from './types';
+import type { GameState, Noble, PlayerIndex, PlayerState } from './types';
 import { isTerminal, winner } from './apply';
 
-/**
- * Score awarded to a winning player at a terminal state. Large enough that
- * any winning state is preferred over any non-terminal state, and any
- * non-terminal state is preferred over any losing state.
- */
 export const TERMINAL_WIN = 1000;
 export const TERMINAL_LOSS = -1000;
 
+export type Feature = (state: GameState, player: PlayerIndex) => number;
+export type WeightedFeature = { name: string; weight: number; fn: Feature };
+
+// === Feature 1: prestige ===
+// The literal score. One-for-one.
+export const prestigeFeature: Feature = (state, player) =>
+  state.players[player]?.prestige ?? 0;
+
+// === Feature 2: bonus count ===
+// Each permanent bonus card is a discount on every future card matching that
+// color. Sub-prestige weighting because the literal score is prestige.
+export const bonusCountFeature: Feature = (state, player) => {
+  const p = state.players[player];
+  if (p === undefined) return 0;
+  let total = 0;
+  for (const c of COLORS) total += p.bonuses[c];
+  return total;
+};
+
+// === Feature 3: noble proximity ===
+// For each unclaimed noble, score how close `player` is to claiming it on a
+// scale of 0 (no progress) to 3 (one bonus away). Linear in proximity ratio
+// so a half-completed noble contributes 1.5 expected prestige.
+const nobleProximityForOne = (player: PlayerState, noble: Noble): number => {
+  let need = 0;
+  let maxNeed = 0;
+  for (const c of COLORS) {
+    const r = noble.requirement[c];
+    maxNeed += r;
+    need += Math.max(0, r - player.bonuses[c]);
+  }
+  if (maxNeed === 0) return 0;
+  const proximity = maxNeed - need;
+  return 3 * (proximity / maxNeed);
+};
+
+export const nobleProximityFeature: Feature = (state, player) => {
+  const p = state.players[player];
+  if (p === undefined) return 0;
+  let total = 0;
+  for (const noble of state.nobles) {
+    total += nobleProximityForOne(p, noble);
+  }
+  return total;
+};
+
 /**
- * Baseline evaluator (Phase 1 v1). Returns a real number; higher is better
- * for the given player.
- *
- *   evaluate = prestige + 0.5 * bonus_count   (non-terminal)
- *   evaluate = ±1000                          (terminal — see consts above)
- *
- * Bonuses get a sub-prestige weight on purpose: a card buys you future
- * discounts, but the literal score is prestige. The 0.5 multiplier is a
- * starting point we'll tune as we add features in subsequent phases.
+ * Combine feature scores into a single number. Pure: every evaluator the
+ * engine ever uses can be expressed as a `WeightedFeature[]`.
  */
-export const evaluate = (state: GameState, player: PlayerIndex): number => {
+export const evaluateWith = (
+  features: readonly WeightedFeature[],
+  state: GameState,
+  player: PlayerIndex,
+): number => {
   if (isTerminal(state)) {
     return winner(state) === player ? TERMINAL_WIN : TERMINAL_LOSS;
   }
-  const p = state.players[player];
-  if (p === undefined) return 0;
-  let bonuses = 0;
-  for (const c of COLORS) bonuses += p.bonuses[c];
-  return p.prestige + 0.5 * bonuses;
+  let score = 0;
+  for (const f of features) score += f.weight * f.fn(state, player);
+  return score;
 };
+
+// === Phase 1 v1 ===
+// Baseline evaluator. Kept exported so we can A/B test future versions
+// against it in tournament.test.ts and the play CLI.
+export const FEATURES_BASELINE: readonly WeightedFeature[] = [
+  { name: 'prestige', weight: 1.0, fn: prestigeFeature },
+  { name: 'bonus_count', weight: 0.5, fn: bonusCountFeature },
+];
+
+export const evaluateBaseline: Feature = (state, player) =>
+  evaluateWith(FEATURES_BASELINE, state, player);
+
+// === Phase 1 v2 ===
+// Add noble proximity. Hypothesis: greedy currently has no signal for nobles
+// until they're literally claimed (and the +3 prestige hits). With this
+// feature it should aim partial bonus columns at noble requirements multiple
+// turns earlier.
+export const FEATURES_V2: readonly WeightedFeature[] = [
+  ...FEATURES_BASELINE,
+  { name: 'noble_proximity', weight: 1.0, fn: nobleProximityFeature },
+];
+
+export const evaluateV2: Feature = (state, player) =>
+  evaluateWith(FEATURES_V2, state, player);
+
+// `evaluate` always points at the current best evaluator.
+export const evaluate: Feature = evaluateV2;
