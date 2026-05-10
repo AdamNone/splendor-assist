@@ -39,13 +39,29 @@ export const gems = (overrides: Partial<GemPool> = {}): GemPool => ({
   ...overrides,
 });
 
-export const player = (overrides: Partial<PlayerState> = {}): PlayerState => ({
-  gems: emptyGemPool(),
-  purchased: [],
-  reserved: [],
-  nobles: [],
-  ...overrides,
-});
+export const player = (overrides: Partial<PlayerState> = {}): PlayerState => {
+  const purchased = overrides.purchased ?? [];
+  const nobles = overrides.nobles ?? [];
+  const bonuses = overrides.bonuses ?? (() => {
+    const b = emptyColorCount();
+    for (const c of purchased) b[c.bonus] += 1;
+    return b;
+  })();
+  let prestige = overrides.prestige;
+  if (prestige === undefined) {
+    prestige = 0;
+    for (const c of purchased) prestige += c.prestige;
+    for (const n of nobles) prestige += n.prestige;
+  }
+  return {
+    gems: overrides.gems ?? emptyGemPool(),
+    purchased,
+    reserved: overrides.reserved ?? [],
+    nobles,
+    bonuses,
+    prestige,
+  };
+};
 
 type StateOverrides = {
   numPlayers?: 2 | 3 | 4;

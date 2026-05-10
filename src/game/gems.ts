@@ -21,7 +21,9 @@ export const emptyGemPool = (): GemPool => ({
 export const totalGems = (pool: GemPool): number =>
   GEM_COLORS.reduce((sum, c) => sum + pool[c], 0);
 
-export const playerBonuses = (player: PlayerState): ColorCount => {
+// Recompute helpers. The engine maintains player.bonuses and player.prestige
+// incrementally; these are used at game setup and as test invariants.
+export const recomputeBonuses = (player: PlayerState): ColorCount => {
   const bonuses = emptyColorCount();
   for (const card of player.purchased) {
     bonuses[card.bonus] += 1;
@@ -29,7 +31,7 @@ export const playerBonuses = (player: PlayerState): ColorCount => {
   return bonuses;
 };
 
-export const playerPrestige = (player: PlayerState): number => {
+export const recomputePrestige = (player: PlayerState): number => {
   let total = 0;
   for (const card of player.purchased) total += card.prestige;
   for (const noble of player.nobles) total += noble.prestige;
@@ -45,12 +47,11 @@ export const computePayment = (
   card: Card,
   player: PlayerState,
 ): GemPool | null => {
-  const bonuses = playerBonuses(player);
   const payment = emptyGemPool();
   let goldNeeded = 0;
   for (const color of COLORS) {
     const cost = card.cost[color];
-    const discount = bonuses[color];
+    const discount = player.bonuses[color];
     const owed = Math.max(0, cost - discount);
     const fromColored = Math.min(owed, player.gems[color]);
     payment[color] = fromColored;

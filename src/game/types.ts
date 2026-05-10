@@ -33,6 +33,10 @@ export type PlayerState = {
   purchased: Card[];
   reserved: Card[];
   nobles: Noble[];
+  // Engine-maintained caches. Always derivable from purchased + nobles, but
+  // stored so search can read them in O(1) instead of recomputing on every leaf.
+  bonuses: ColorCount;
+  prestige: number;
 };
 
 export type PendingReveal = { tier: Tier; slot: number };
