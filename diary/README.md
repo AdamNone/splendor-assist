@@ -16,9 +16,9 @@ The diary is the canonical record of the *thinking*. Code in `src/` is the canon
 
 ## Phases
 
-- [Phase 0 — Formalize Splendor as a decision problem](phase-00-formalization.md) (modeling complete; engine spillover pending)
-- [Phase 1 — Handcrafted evaluator](phase-01-evaluator.md) (data analysis complete; evaluator pending)
-- Phase 2 — Lookahead search *(not started)*
+- [Phase 0 — Formalize Splendor as a decision problem](phase-00-formalization.md) (complete)
+- [Phase 1 — Handcrafted evaluator](phase-01-evaluator.md) (v3 complete: prestige + bonus_count + noble_proximity + opponent_threat)
+- [Phase 2 — Lookahead search](phase-02-search.md) (v1 complete: depth-2 max-N)
 - Phase 3 — MCTS with determinization *(not started)*
 - Phase 4 — Learned components *(optional)*
 

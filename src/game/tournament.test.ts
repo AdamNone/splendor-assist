@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { greedyAgent, randomAgent } from './agents';
+import { greedyAgent, randomAgent, searchAgent } from './agents';
 import { evaluateBaseline, evaluateV2, evaluateV3 } from './evaluate';
 import { seededRng } from './setup';
 import { playMatch } from './tournament';
@@ -57,4 +57,18 @@ describe('experiment: v3 (with opponent_threat) vs v2', () => {
     );
     expect(result.aWins).toBeGreaterThanOrEqual(result.bWins);
   }, 60_000);
+});
+
+describe('experiment: search depth-2 vs greedy(v3)', () => {
+  // 20-game spot-checks at seeds 7 / 11 / 23 show search-d2 wins by
+  // +25 / +15 / +30 pp. This regression test runs fewer games (search is
+  // ~75ms/turn) with a conservative bar.
+  it('search-d2 wins at least as many head-to-head games as greedy(v3)', () => {
+    const result = playMatch(
+      searchAgent(2, evaluateV3),
+      greedyAgent(evaluateV3),
+      { games: 6, rng: seededRng(42) },
+    );
+    expect(result.aWins).toBeGreaterThanOrEqual(result.bWins);
+  }, 120_000);
 });

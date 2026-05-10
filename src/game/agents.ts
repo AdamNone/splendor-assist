@@ -1,6 +1,7 @@
 import { applyTurn } from './apply';
 import { evaluate } from './evaluate';
 import { legalActions } from './legalActions';
+import { searchBestAction } from './search';
 import type { Rng } from './setup';
 import type { Action, GameState } from './types';
 
@@ -51,3 +52,16 @@ export const greedyAgent = (evalFn: Evaluator = evaluate): Agent => (state) => {
   if (choice === undefined) throw new Error('greedyAgent: empty action list');
   return choice;
 };
+
+/**
+ * Multi-player max-N search to a fixed depth, using `evalFn` at the leaves.
+ * `depth=1` is equivalent to greedy (the leaf is the post-action state, and
+ * we maximize over candidate actions). `depth=2` simulates the opponent's
+ * best response. `depth=3` simulates one more ply.
+ *
+ * Branching factor in Splendor is roughly 20–30 actions per turn, so depth
+ * costs roughly that exponentially. depth=2 is fast; depth=3 is the
+ * practical ceiling without pruning.
+ */
+export const searchAgent = (depth: number, evalFn: Evaluator = evaluate): Agent =>
+  (state) => searchBestAction(state, { depth, evalFn });
