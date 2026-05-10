@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  concentrationFeature,
   evaluate,
   evaluateBaseline,
+  evaluateV2,
   nobleProximityFeature,
   TERMINAL_LOSS,
   TERMINAL_WIN,
@@ -118,6 +120,48 @@ describe('v2 evaluator includes noble proximity', () => {
       nobles: [n],
       players: [player({ purchased: [c, c] }), player()],
     });
-    expect(evaluate(s, 0)).toBeGreaterThan(evaluateBaseline(s, 0));
+    expect(evaluateV2(s, 0)).toBeGreaterThan(evaluateBaseline(s, 0));
+  });
+});
+
+describe('concentration feature', () => {
+  it('returns 0 when player has no bonuses', () => {
+    const s = makeState({ players: [player(), player()] });
+    expect(concentrationFeature(s, 0)).toBe(0);
+  });
+
+  it('a flat 1-of-each engine has top2 = 2', () => {
+    const w = card('CW', 1, 'white');
+    const b = card('CB', 1, 'blue');
+    const g = card('CG', 1, 'green');
+    const r = card('CR', 1, 'red');
+    const k = card('CK', 1, 'black');
+    const s = makeState({ players: [player({ purchased: [w, b, g, r, k] }), player()] });
+    expect(concentrationFeature(s, 0)).toBe(2);
+  });
+
+  it('a 4+4 noble-shaped engine has top2 = 8', () => {
+    const w = card('CW', 1, 'white');
+    const b = card('CB', 1, 'blue');
+    const s = makeState({
+      players: [player({ purchased: [w, w, w, w, b, b, b, b] }), player()],
+    });
+    expect(concentrationFeature(s, 0)).toBe(8);
+  });
+
+  it('an over-concentrated single color stops at top2 = max + 0', () => {
+    const w = card('CW', 1, 'white');
+    const s = makeState({
+      players: [player({ purchased: [w, w, w, w, w] }), player()],
+    });
+    expect(concentrationFeature(s, 0)).toBe(5);
+  });
+});
+
+describe('current evaluator alias', () => {
+  it('evaluate alias points at v2 (concentration was rolled back; see diary Experiment 3)', () => {
+    const c = card('CW', 1, 'white');
+    const s = makeState({ players: [player({ purchased: [c, c] }), player()] });
+    expect(evaluate(s, 0)).toBe(evaluateV2(s, 0));
   });
 });

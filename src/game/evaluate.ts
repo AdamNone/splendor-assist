@@ -92,5 +92,32 @@ export const FEATURES_V2: readonly WeightedFeature[] = [
 export const evaluateV2: Feature = (state, player) =>
   evaluateWith(FEATURES_V2, state, player);
 
-// `evaluate` always points at the current best evaluator.
+// === Candidate feature: concentration (top-2 bonuses) ===
+// Tried during Experiment 3 (see diary/phase-01-evaluator.md). Hypothesis was
+// that rewarding the two tallest bonus columns would push greedy toward
+// 4+4 noble shapes (F4) and toward T3-anchor reachability (F3). It did not.
+// At weights 0.5, 0.3, 0.2, head-to-head match against v2 came out -4 to -8
+// percentage points. Best guess: v2 already follows the board adaptively; a
+// rigid concentration prior makes greedy refuse cheap diversifying cards,
+// losing tempo.
+//
+// Kept exported for reference and so the regression is locked in via tests.
+export const concentrationFeature: Feature = (state, player) => {
+  const p = state.players[player];
+  if (p === undefined) return 0;
+  let top1 = 0;
+  let top2 = 0;
+  for (const c of COLORS) {
+    const v = p.bonuses[c];
+    if (v > top1) {
+      top2 = top1;
+      top1 = v;
+    } else if (v > top2) {
+      top2 = v;
+    }
+  }
+  return top1 + top2;
+};
+
+// `evaluate` always points at the current best evaluator. v2 currently leads.
 export const evaluate: Feature = evaluateV2;

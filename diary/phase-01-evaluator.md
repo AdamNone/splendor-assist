@@ -177,6 +177,45 @@ Hypothesis: even the simplest scoring function should beat random play.
 
 **Result (10 games, seed 42):** greedy v1 won 10/10. Baseline confirmed.
 
+### Experiment 3 — concentration (top-2 bonuses) vs v2 [REJECTED]
+
+**Hypothesis (from F3 + F4).** Every T3 card needs ≥5 of one color, so a
+flat one-of-each engine cannot afford T3. Five of ten nobles are 4+4
+of two colors. Both pressures suggest rewarding the sum of the two
+tallest bonus columns: `top1 + top2`.
+
+**Implementation.** `concentrationFeature` in `src/game/evaluate.ts`,
+added on top of v2.
+
+**Results (50 games head-to-head against v2):**
+
+| Variant | Seed | Wins | v2 wins | Draws | Δ (pp) |
+|---|---|---|---|---|---|
+| v3 weight 0.5 | 7  | 19 | 23 |  8 | **−8.0** |
+| v3 weight 0.5 | 11 | 17 | 23 | 10 | **−12.0** |
+| v3 weight 0.2 | 7  | 20 | 22 |  8 | **−4.0** |
+
+Across two seeds and two weights, concentration consistently *hurts*.
+At weight 0.0 it would tie by definition; nothing in the data points
+at a weight where it helps.
+
+**Interpretation.** v2 already adapts to the board: noble proximity
+points it at noble-aligned bonuses, prestige+bonus_count points it at
+*any* useful card. A concentration prior on top of that creates
+rigidity — the agent refuses cheap diversifying buys to wait for
+"the right color." Diversifying buys lose tempo; tempo loss is what
+the data is showing.
+
+The lesson: **a feature that "matches the data analysis" can still
+underperform if it conflicts with the agent's existing adaptive
+behavior.** The right way to encode color preference is to derive it
+from the *current* state (what's on the board, what nobles are in
+play), not to bake in a static prior. That's exactly what
+demand-weighted engine value (next experiment) does.
+
+**Decision: rejected.** Feature kept as exported `concentrationFeature`
+for documentation; not in any active `FEATURES_*` array.
+
 ### Experiment 2 — v2 (noble proximity) vs v1 baseline
 
 Hypothesis from F4: nobles are 3 prestige each, claimed mid-game. With
