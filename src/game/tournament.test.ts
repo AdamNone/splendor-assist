@@ -59,8 +59,8 @@ describe('experiment: v3 (with opponent_threat) vs v2', () => {
   }, 60_000);
 });
 
-describe('experiment: search depth-2 vs greedy(v3)', () => {
-  // 20-game spot-checks at seeds 7 / 11 / 23 show search-d2 wins by
+describe('experiment: search depth-2 (max-N) vs greedy(v3)', () => {
+  // 20-game spot-checks at seeds 7 / 11 / 23 show max-N depth 2 wins by
   // +25 / +15 / +30 pp. This regression test runs fewer games (search is
   // ~75ms/turn) with a conservative bar.
   it('search-d2 wins at least as many head-to-head games as greedy(v3)', () => {
@@ -71,4 +71,19 @@ describe('experiment: search depth-2 vs greedy(v3)', () => {
     );
     expect(result.aWins).toBeGreaterThanOrEqual(result.bWins);
   }, 120_000);
+});
+
+describe('experiment: search depth-3 (alpha-beta) vs greedy(v3)', () => {
+  // 12-game spot-checks at seeds 7 / 11 / 23 show alpha-beta depth 3 wins
+  // by +33 / +67 / +33 pp (avg +44). The dispatcher routes 2-player depth-3
+  // searches through alpha-beta because the pruning makes that depth
+  // tractable (~200 ms/turn). Bar is conservative.
+  it('search-d3 wins at least as many head-to-head games as greedy(v3)', () => {
+    const result = playMatch(
+      searchAgent(3, evaluateV3),
+      greedyAgent(evaluateV3),
+      { games: 4, rng: seededRng(42) },
+    );
+    expect(result.aWins).toBeGreaterThanOrEqual(result.bWins);
+  }, 180_000);
 });

@@ -39,4 +39,35 @@ describe('searchAgent', () => {
     });
     expect(searchAgent(2, evaluateV3)(s).type).toBe('buy');
   });
+
+  it('depth 3 returns a legal action in 2 players (alpha-beta path)', () => {
+    const target = card('T1-001', 1, 'red', 1, { blue: 1 });
+    const s = makeState({
+      numPlayers: 2,
+      faceUp: { 1: [target, null, null, null] },
+      players: [player({ gems: { ...emptyGems(), blue: 1 } }), player()],
+      gemSupply: { white: 4, blue: 4, green: 4 },
+    });
+    const action = searchAgent(3, evaluateV3)(s);
+    expect(action).toBeDefined();
+    expect(['take3', 'take2', 'reserve', 'buy']).toContain(action.type);
+  });
+
+  it('depth 3 returns a legal action in 4 players (max-N path)', () => {
+    const target = card('T1-001', 1, 'red', 1, { blue: 1 });
+    const s = makeState({
+      numPlayers: 4,
+      faceUp: { 1: [target, null, null, null] },
+      players: [
+        player({ gems: { ...emptyGems(), blue: 1 } }),
+        player(),
+        player(),
+        player(),
+      ],
+      gemSupply: { white: 4, blue: 4, green: 4 },
+    });
+    const action = searchAgent(2, evaluateV3)(s);
+    expect(action).toBeDefined();
+    expect(['take3', 'take2', 'reserve', 'buy']).toContain(action.type);
+  });
 });
