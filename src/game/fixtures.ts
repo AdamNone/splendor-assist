@@ -79,6 +79,7 @@ type StateOverrides = {
   players?: PlayerState[];
   currentPlayer?: 0 | 1 | 2 | 3;
   startingPlayer?: 0 | 1 | 2 | 3;
+  turnNumber?: number;
 };
 
 export const makeState = (overrides: StateOverrides = {}): GameState => {
@@ -98,6 +99,6 @@ export const makeState = (overrides: StateOverrides = {}): GameState => {
     currentPlayer: overrides.currentPlayer ?? 0,
     startingPlayer: overrides.startingPlayer ?? 0,
     pendingReveals: [],
-    turnNumber: 0,
+    turnNumber: overrides.turnNumber ?? 0,
   };
 };
