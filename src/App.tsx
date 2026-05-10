@@ -4,6 +4,7 @@ import './App.css';
 type Color = 'white' | 'blue' | 'green' | 'red' | 'black';
 type Tier = 1 | 2 | 3;
 type Mode = 'cards' | 'nobles';
+type CardSort = 'newest' | 'tier-color';
 
 type DraftCard = {
   id: string;
@@ -232,6 +233,7 @@ export default function App() {
   const [mode, setMode] = useState<Mode>('cards');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showOnlyFlagged, setShowOnlyFlagged] = useState<boolean>(false);
+  const [cardSort, setCardSort] = useState<CardSort>('newest');
 
   // Card form state
   const [tier, setTier] = useState<Tier>(1);
@@ -693,28 +695,51 @@ export default function App() {
               ? `Cards (${data.cards.length})`
               : `Nobles (${data.nobles.length})`}
           </h2>
-          {((mode === 'cards' && cardsFlagged > 0) ||
-            (mode === 'nobles' && noblesFlagged > 0)) && (
-            <label className="filter-toggle">
-              <input
-                type="checkbox"
-                checked={showOnlyFlagged}
-                onChange={(e) => setShowOnlyFlagged(e.target.checked)}
-              />
-              Show only flagged
-            </label>
-          )}
+          <div className="list-controls">
+            {mode === 'cards' && data.cards.length > 0 && (
+              <label className="sort-control">
+                Sort
+                <select
+                  value={cardSort}
+                  onChange={(e) => setCardSort(e.target.value as CardSort)}
+                >
+                  <option value="newest">Newest first</option>
+                  <option value="tier-color">Tier, then color</option>
+                </select>
+              </label>
+            )}
+            {((mode === 'cards' && cardsFlagged > 0) ||
+              (mode === 'nobles' && noblesFlagged > 0)) && (
+              <label className="filter-toggle">
+                <input
+                  type="checkbox"
+                  checked={showOnlyFlagged}
+                  onChange={(e) => setShowOnlyFlagged(e.target.checked)}
+                />
+                Show only flagged
+              </label>
+            )}
+          </div>
         </div>
         {mode === 'cards' ? (
           data.cards.length === 0 ? (
             <p className="empty">No cards yet. Submit one to get started.</p>
           ) : (
             (() => {
-              const visible = [...data.cards]
-                .reverse()
-                .filter((c) =>
-                  showOnlyFlagged ? (cardIssues[c.id]?.length ?? 0) > 0 : true,
+              const sorted = [...data.cards];
+              if (cardSort === 'newest') {
+                sorted.reverse();
+              } else {
+                sorted.sort(
+                  (a, b) =>
+                    a.tier - b.tier ||
+                    COLORS.indexOf(a.bonus) - COLORS.indexOf(b.bonus) ||
+                    idTail(a.id) - idTail(b.id),
                 );
+              }
+              const visible = sorted.filter((c) =>
+                showOnlyFlagged ? (cardIssues[c.id]?.length ?? 0) > 0 : true,
+              );
               if (visible.length === 0) {
                 return <p className="empty">No flagged cards. Toggle the filter off to see all.</p>;
               }

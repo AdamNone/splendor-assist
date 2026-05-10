@@ -133,9 +133,39 @@ section {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
+  gap: 16px;
 }
 .list-header h2 {
   margin: 0;
+}
+.list-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.sort-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #6b7280;
+  user-select: none;
+}
+.sort-control select {
+  height: 28px;
+  padding: 0 26px 0 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  color: #1f2937;
+  cursor: pointer;
+}
+.sort-control select:focus {
+  outline: none;
+  border-color: #1f2937;
+  box-shadow: 0 0 0 3px rgba(31, 41, 55, 0.08);
 }
 .filter-toggle {
   display: inline-flex;
