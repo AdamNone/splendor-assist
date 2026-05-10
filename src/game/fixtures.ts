@@ -16,8 +16,8 @@ export const card = (
   id: string,
   tier: Tier,
   bonus: Color,
-  prestige: number,
-  cost: Partial<ColorCount>,
+  prestige = 0,
+  cost: Partial<ColorCount> = {},
 ): Card => ({
   id,
   tier,
