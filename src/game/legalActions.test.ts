@@ -2,6 +2,45 @@ import { describe, expect, it } from 'vitest';
 import { legalActions } from './legalActions';
 import { card, makeState, player, reservedCard } from './fixtures';
 
+describe('legalActions: gem-cap pressure', () => {
+  it('filters out take3 when player would exceed the 10-gem cap', () => {
+    const state = makeState({
+      gemSupply: { white: 3, blue: 3, green: 3 },
+      players: [
+        player({ gems: { white: 0, blue: 0, green: 0, red: 4, black: 4, gold: 0 } }),
+        player(),
+      ],
+    });
+    const take3s = legalActions(state).filter((a) => a.type === 'take3');
+    // 8 + 3 = 11 > 10; no take3 should appear
+    expect(take3s).toHaveLength(0);
+  });
+
+  it('filters out take2 when the player would exceed cap', () => {
+    const state = makeState({
+      gemSupply: { white: 4 },
+      players: [
+        player({ gems: { white: 0, blue: 0, green: 0, red: 4, black: 5, gold: 0 } }),
+        player(),
+      ],
+    });
+    expect(legalActions(state).filter((a) => a.type === 'take2')).toHaveLength(0);
+  });
+
+  it('still allows reserve when no gold is available even if at cap', () => {
+    const c = card('T1-001', 1, 'red', 0, { blue: 1 });
+    const state = makeState({
+      faceUp: { 1: [c, null, null, null] },
+      gemSupply: { gold: 0 },
+      players: [
+        player({ gems: { white: 2, blue: 2, green: 2, red: 2, black: 2, gold: 0 } }),
+        player(),
+      ],
+    });
+    expect(legalActions(state).filter((a) => a.type === 'reserve').length).toBeGreaterThan(0);
+  });
+});
+
 describe('legalActions: take3', () => {
   it('enumerates all 3-color subsets when ≥3 colors available', () => {
     const state = makeState({

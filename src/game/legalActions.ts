@@ -1,11 +1,12 @@
 import {
   COLORS,
+  GEM_HAND_LIMIT,
   RESERVE_LIMIT,
   TAKE_2_MIN_PILE,
   TIERS,
 } from './types';
 import type { Action, Color, GameState } from './types';
-import { computePayment } from './gems';
+import { computePayment, totalGems } from './gems';
 
 const kSubsets = <T>(items: readonly T[], k: number): T[][] => {
   const result: T[][] = [];
@@ -32,21 +33,34 @@ export const legalActions = (state: GameState): Action[] => {
   const player = state.players[state.currentPlayer];
   if (player === undefined) return actions;
 
+  const heldGems = totalGems(player.gems);
+  const headroom = GEM_HAND_LIMIT - heldGems;
+  // Phase 1 simplification: skip take/reserve actions that would exceed the
+  // 10-gem cap. Per D8, the long-term plan is to enumerate discard variants
+  // here so the agent can choose what to keep — that lands when search needs
+  // it (Phase 2 / 3). Until then, the agent simply opts out of greedy gem
+  // hoarding once it would force a discard.
+  const goldAvailable = state.gemSupply.gold > 0;
+
   const availableColors: Color[] = COLORS.filter((c) => state.gemSupply[c] > 0);
   const takeSize = Math.min(3, availableColors.length);
-  if (takeSize > 0) {
+  if (takeSize > 0 && takeSize <= headroom) {
     for (const subset of kSubsets(availableColors, takeSize)) {
       actions.push({ type: 'take3', colors: subset });
     }
   }
 
-  for (const c of COLORS) {
-    if (state.gemSupply[c] >= TAKE_2_MIN_PILE) {
-      actions.push({ type: 'take2', color: c });
+  if (headroom >= 2) {
+    for (const c of COLORS) {
+      if (state.gemSupply[c] >= TAKE_2_MIN_PILE) {
+        actions.push({ type: 'take2', color: c });
+      }
     }
   }
 
-  if (player.reserved.length < RESERVE_LIMIT) {
+  // Reserve gives +1 gold iff supply has gold; that's the gem-cap pressure.
+  const reserveGemAdded = goldAvailable ? 1 : 0;
+  if (player.reserved.length < RESERVE_LIMIT && reserveGemAdded <= headroom) {
     for (const tier of TIERS) {
       const slots = state.faceUp[tier];
       for (let slot = 0; slot < slots.length; slot++) {
