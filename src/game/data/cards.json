@@ -1,0 +1,1172 @@
+[
+  {
+    "id": "T1-001",
+    "tier": 1,
+    "bonus": "red",
+    "prestige": 0,
+    "cost": {
+      "white": 2,
+      "blue": 1,
+      "green": 1,
+      "red": 0,
+      "black": 1
+    }
+  },
+  {
+    "id": "T1-002",
+    "tier": 1,
+    "bonus": "blue",
+    "prestige": 0,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 0,
+      "red": 0,
+      "black": 3
+    }
+  },
+  {
+    "id": "T1-003",
+    "tier": 1,
+    "bonus": "red",
+    "prestige": 0,
+    "cost": {
+      "white": 1,
+      "blue": 0,
+      "green": 0,
+      "red": 1,
+      "black": 3
+    }
+  },
+  {
+    "id": "T1-004",
+    "tier": 1,
+    "bonus": "white",
+    "prestige": 0,
+    "cost": {
+      "white": 0,
+      "blue": 2,
+      "green": 2,
+      "red": 0,
+      "black": 1
+    }
+  },
+  {
+    "id": "T1-005",
+    "tier": 1,
+    "bonus": "white",
+    "prestige": 0,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 0,
+      "red": 2,
+      "black": 1
+    }
+  },
+  {
+    "id": "T1-006",
+    "tier": 1,
+    "bonus": "green",
+    "prestige": 0,
+    "cost": {
+      "white": 1,
+      "blue": 1,
+      "green": 0,
+      "red": 1,
+      "black": 2
+    }
+  },
+  {
+    "id": "T1-007",
+    "tier": 1,
+    "bonus": "blue",
+    "prestige": 0,
+    "cost": {
+      "white": 1,
+      "blue": 0,
+      "green": 1,
+      "red": 1,
+      "black": 1
+    }
+  },
+  {
+    "id": "T1-008",
+    "tier": 1,
+    "bonus": "white",
+    "prestige": 0,
+    "cost": {
+      "white": 0,
+      "blue": 1,
+      "green": 1,
+      "red": 1,
+      "black": 1
+    }
+  },
+  {
+    "id": "T1-009",
+    "tier": 1,
+    "bonus": "black",
+    "prestige": 1,
+    "cost": {
+      "white": 0,
+      "blue": 4,
+      "green": 0,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T1-010",
+    "tier": 1,
+    "bonus": "blue",
+    "prestige": 0,
+    "cost": {
+      "white": 0,
+      "blue": 1,
+      "green": 3,
+      "red": 1,
+      "black": 0
+    }
+  },
+  {
+    "id": "T1-011",
+    "tier": 1,
+    "bonus": "white",
+    "prestige": 0,
+    "cost": {
+      "white": 0,
+      "blue": 2,
+      "green": 0,
+      "red": 0,
+      "black": 2
+    }
+  },
+  {
+    "id": "T1-012",
+    "tier": 1,
+    "bonus": "black",
+    "prestige": 0,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 2,
+      "red": 1,
+      "black": 0
+    }
+  },
+  {
+    "id": "T1-013",
+    "tier": 1,
+    "bonus": "blue",
+    "prestige": 1,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 0,
+      "red": 4,
+      "black": 0
+    }
+  },
+  {
+    "id": "T1-014",
+    "tier": 1,
+    "bonus": "green",
+    "prestige": 0,
+    "cost": {
+      "white": 0,
+      "blue": 1,
+      "green": 0,
+      "red": 2,
+      "black": 2
+    }
+  },
+  {
+    "id": "T1-015",
+    "tier": 1,
+    "bonus": "blue",
+    "prestige": 0,
+    "cost": {
+      "white": 1,
+      "blue": 0,
+      "green": 0,
+      "red": 0,
+      "black": 2
+    }
+  },
+  {
+    "id": "T1-016",
+    "tier": 1,
+    "bonus": "blue",
+    "prestige": 0,
+    "cost": {
+      "white": 1,
+      "blue": 0,
+      "green": 1,
+      "red": 2,
+      "black": 1
+    }
+  },
+  {
+    "id": "T1-017",
+    "tier": 1,
+    "bonus": "red",
+    "prestige": 0,
+    "cost": {
+      "white": 1,
+      "blue": 1,
+      "green": 1,
+      "red": 0,
+      "black": 1
+    }
+  },
+  {
+    "id": "T1-018",
+    "tier": 1,
+    "bonus": "green",
+    "prestige": 0,
+    "cost": {
+      "white": 1,
+      "blue": 1,
+      "green": 0,
+      "red": 1,
+      "black": 1
+    }
+  },
+  {
+    "id": "T1-019",
+    "tier": 1,
+    "bonus": "blue",
+    "prestige": 0,
+    "cost": {
+      "white": 1,
+      "blue": 0,
+      "green": 3,
+      "red": 3,
+      "black": 0
+    }
+  },
+  {
+    "id": "T1-020",
+    "tier": 1,
+    "bonus": "green",
+    "prestige": 1,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 0,
+      "red": 0,
+      "black": 4
+    }
+  },
+  {
+    "id": "T1-021",
+    "tier": 1,
+    "bonus": "red",
+    "prestige": 1,
+    "cost": {
+      "white": 4,
+      "blue": 0,
+      "green": 0,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T1-022",
+    "tier": 1,
+    "bonus": "blue",
+    "prestige": 0,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 2,
+      "red": 0,
+      "black": 2
+    }
+  },
+  {
+    "id": "T1-023",
+    "tier": 1,
+    "bonus": "green",
+    "prestige": 0,
+    "cost": {
+      "white": 0,
+      "blue": 2,
+      "green": 0,
+      "red": 2,
+      "black": 0
+    }
+  },
+  {
+    "id": "T1-024",
+    "tier": 1,
+    "bonus": "red",
+    "prestige": 0,
+    "cost": {
+      "white": 2,
+      "blue": 0,
+      "green": 1,
+      "red": 0,
+      "black": 2
+    }
+  },
+  {
+    "id": "T1-025",
+    "tier": 1,
+    "bonus": "white",
+    "prestige": 0,
+    "cost": {
+      "white": 3,
+      "blue": 1,
+      "green": 0,
+      "red": 0,
+      "black": 1
+    }
+  },
+  {
+    "id": "T1-026",
+    "tier": 1,
+    "bonus": "green",
+    "prestige": 0,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 0,
+      "red": 3,
+      "black": 0
+    }
+  },
+  {
+    "id": "T1-027",
+    "tier": 1,
+    "bonus": "black",
+    "prestige": 0,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 3,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T1-028",
+    "tier": 1,
+    "bonus": "white",
+    "prestige": 0,
+    "cost": {
+      "white": 0,
+      "blue": 3,
+      "green": 0,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T1-029",
+    "tier": 1,
+    "bonus": "black",
+    "prestige": 0,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 1,
+      "red": 3,
+      "black": 1
+    }
+  },
+  {
+    "id": "T1-030",
+    "tier": 1,
+    "bonus": "green",
+    "prestige": 0,
+    "cost": {
+      "white": 1,
+      "blue": 3,
+      "green": 1,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T1-031",
+    "tier": 1,
+    "bonus": "white",
+    "prestige": 0,
+    "cost": {
+      "white": 0,
+      "blue": 1,
+      "green": 2,
+      "red": 1,
+      "black": 1
+    }
+  },
+  {
+    "id": "T1-032",
+    "tier": 1,
+    "bonus": "white",
+    "prestige": 1,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 4,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T1-033",
+    "tier": 1,
+    "bonus": "red",
+    "prestige": 0,
+    "cost": {
+      "white": 2,
+      "blue": 0,
+      "green": 0,
+      "red": 2,
+      "black": 0
+    }
+  },
+  {
+    "id": "T1-034",
+    "tier": 1,
+    "bonus": "red",
+    "prestige": 0,
+    "cost": {
+      "white": 0,
+      "blue": 2,
+      "green": 1,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T1-035",
+    "tier": 1,
+    "bonus": "black",
+    "prestige": 0,
+    "cost": {
+      "white": 2,
+      "blue": 0,
+      "green": 2,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T1-036",
+    "tier": 1,
+    "bonus": "red",
+    "prestige": 0,
+    "cost": {
+      "white": 3,
+      "blue": 0,
+      "green": 0,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T1-037",
+    "tier": 1,
+    "bonus": "black",
+    "prestige": 0,
+    "cost": {
+      "white": 1,
+      "blue": 1,
+      "green": 1,
+      "red": 1,
+      "black": 0
+    }
+  },
+  {
+    "id": "T1-038",
+    "tier": 1,
+    "bonus": "green",
+    "prestige": 0,
+    "cost": {
+      "white": 2,
+      "blue": 1,
+      "green": 0,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T1-039",
+    "tier": 1,
+    "bonus": "black",
+    "prestige": 0,
+    "cost": {
+      "white": 2,
+      "blue": 2,
+      "green": 0,
+      "red": 1,
+      "black": 0
+    }
+  },
+  {
+    "id": "T1-040",
+    "tier": 1,
+    "bonus": "black",
+    "prestige": 0,
+    "cost": {
+      "white": 1,
+      "blue": 2,
+      "green": 1,
+      "red": 1,
+      "black": 0
+    }
+  },
+  {
+    "id": "T2-001",
+    "tier": 2,
+    "bonus": "red",
+    "prestige": 2,
+    "cost": {
+      "white": 3,
+      "blue": 0,
+      "green": 0,
+      "red": 0,
+      "black": 5
+    }
+  },
+  {
+    "id": "T2-002",
+    "tier": 2,
+    "bonus": "red",
+    "prestige": 1,
+    "cost": {
+      "white": 0,
+      "blue": 3,
+      "green": 0,
+      "red": 2,
+      "black": 3
+    }
+  },
+  {
+    "id": "T2-003",
+    "tier": 2,
+    "bonus": "red",
+    "prestige": 2,
+    "cost": {
+      "white": 1,
+      "blue": 4,
+      "green": 2,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T2-004",
+    "tier": 2,
+    "bonus": "red",
+    "prestige": 1,
+    "cost": {
+      "white": 2,
+      "blue": 0,
+      "green": 0,
+      "red": 2,
+      "black": 3
+    }
+  },
+  {
+    "id": "T2-005",
+    "tier": 2,
+    "bonus": "red",
+    "prestige": 2,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 0,
+      "red": 0,
+      "black": 5
+    }
+  },
+  {
+    "id": "T2-006",
+    "tier": 2,
+    "bonus": "red",
+    "prestige": 3,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 0,
+      "red": 6,
+      "black": 0
+    }
+  },
+  {
+    "id": "T2-007",
+    "tier": 2,
+    "bonus": "blue",
+    "prestige": 2,
+    "cost": {
+      "white": 5,
+      "blue": 3,
+      "green": 0,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T2-008",
+    "tier": 2,
+    "bonus": "blue",
+    "prestige": 3,
+    "cost": {
+      "white": 0,
+      "blue": 6,
+      "green": 0,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T2-009",
+    "tier": 2,
+    "bonus": "blue",
+    "prestige": 1,
+    "cost": {
+      "white": 0,
+      "blue": 2,
+      "green": 2,
+      "red": 3,
+      "black": 0
+    }
+  },
+  {
+    "id": "T2-010",
+    "tier": 2,
+    "bonus": "blue",
+    "prestige": 2,
+    "cost": {
+      "white": 2,
+      "blue": 0,
+      "green": 0,
+      "red": 1,
+      "black": 4
+    }
+  },
+  {
+    "id": "T2-011",
+    "tier": 2,
+    "bonus": "blue",
+    "prestige": 2,
+    "cost": {
+      "white": 0,
+      "blue": 5,
+      "green": 0,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T2-012",
+    "tier": 2,
+    "bonus": "blue",
+    "prestige": 1,
+    "cost": {
+      "white": 0,
+      "blue": 2,
+      "green": 3,
+      "red": 0,
+      "black": 3
+    }
+  },
+  {
+    "id": "T2-013",
+    "tier": 2,
+    "bonus": "green",
+    "prestige": 1,
+    "cost": {
+      "white": 2,
+      "blue": 3,
+      "green": 0,
+      "red": 0,
+      "black": 2
+    }
+  },
+  {
+    "id": "T2-014",
+    "tier": 2,
+    "bonus": "green",
+    "prestige": 2,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 5,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T2-015",
+    "tier": 2,
+    "bonus": "green",
+    "prestige": 1,
+    "cost": {
+      "white": 3,
+      "blue": 0,
+      "green": 2,
+      "red": 3,
+      "black": 0
+    }
+  },
+  {
+    "id": "T2-016",
+    "tier": 2,
+    "bonus": "green",
+    "prestige": 2,
+    "cost": {
+      "white": 0,
+      "blue": 5,
+      "green": 3,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T2-017",
+    "tier": 2,
+    "bonus": "green",
+    "prestige": 2,
+    "cost": {
+      "white": 4,
+      "blue": 2,
+      "green": 0,
+      "red": 0,
+      "black": 1
+    }
+  },
+  {
+    "id": "T2-018",
+    "tier": 2,
+    "bonus": "green",
+    "prestige": 3,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 6,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T2-019",
+    "tier": 2,
+    "bonus": "white",
+    "prestige": 2,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 0,
+      "red": 5,
+      "black": 0
+    }
+  },
+  {
+    "id": "T2-020",
+    "tier": 2,
+    "bonus": "white",
+    "prestige": 3,
+    "cost": {
+      "white": 6,
+      "blue": 0,
+      "green": 0,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T2-021",
+    "tier": 2,
+    "bonus": "white",
+    "prestige": 1,
+    "cost": {
+      "white": 2,
+      "blue": 3,
+      "green": 0,
+      "red": 3,
+      "black": 0
+    }
+  },
+  {
+    "id": "T2-022",
+    "tier": 2,
+    "bonus": "white",
+    "prestige": 1,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 3,
+      "red": 2,
+      "black": 2
+    }
+  },
+  {
+    "id": "T2-023",
+    "tier": 2,
+    "bonus": "white",
+    "prestige": 2,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 1,
+      "red": 4,
+      "black": 2
+    }
+  },
+  {
+    "id": "T2-024",
+    "tier": 2,
+    "bonus": "white",
+    "prestige": 2,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 0,
+      "red": 5,
+      "black": 3
+    }
+  },
+  {
+    "id": "T2-025",
+    "tier": 2,
+    "bonus": "black",
+    "prestige": 3,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 0,
+      "red": 0,
+      "black": 6
+    }
+  },
+  {
+    "id": "T2-026",
+    "tier": 2,
+    "bonus": "black",
+    "prestige": 1,
+    "cost": {
+      "white": 3,
+      "blue": 0,
+      "green": 3,
+      "red": 0,
+      "black": 2
+    }
+  },
+  {
+    "id": "T2-027",
+    "tier": 2,
+    "bonus": "black",
+    "prestige": 1,
+    "cost": {
+      "white": 3,
+      "blue": 2,
+      "green": 2,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T2-028",
+    "tier": 2,
+    "bonus": "black",
+    "prestige": 2,
+    "cost": {
+      "white": 0,
+      "blue": 1,
+      "green": 4,
+      "red": 2,
+      "black": 0
+    }
+  },
+  {
+    "id": "T2-029",
+    "tier": 2,
+    "bonus": "black",
+    "prestige": 2,
+    "cost": {
+      "white": 5,
+      "blue": 0,
+      "green": 0,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T2-030",
+    "tier": 2,
+    "bonus": "black",
+    "prestige": 2,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 5,
+      "red": 3,
+      "black": 0
+    }
+  },
+  {
+    "id": "T3-001",
+    "tier": 3,
+    "bonus": "red",
+    "prestige": 3,
+    "cost": {
+      "white": 3,
+      "blue": 5,
+      "green": 3,
+      "red": 0,
+      "black": 3
+    }
+  },
+  {
+    "id": "T3-002",
+    "tier": 3,
+    "bonus": "red",
+    "prestige": 4,
+    "cost": {
+      "white": 0,
+      "blue": 3,
+      "green": 6,
+      "red": 3,
+      "black": 0
+    }
+  },
+  {
+    "id": "T3-003",
+    "tier": 3,
+    "bonus": "red",
+    "prestige": 4,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 7,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T3-004",
+    "tier": 3,
+    "bonus": "red",
+    "prestige": 5,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 7,
+      "red": 3,
+      "black": 0
+    }
+  },
+  {
+    "id": "T3-005",
+    "tier": 3,
+    "bonus": "blue",
+    "prestige": 4,
+    "cost": {
+      "white": 6,
+      "blue": 3,
+      "green": 0,
+      "red": 0,
+      "black": 3
+    }
+  },
+  {
+    "id": "T3-006",
+    "tier": 3,
+    "bonus": "blue",
+    "prestige": 3,
+    "cost": {
+      "white": 3,
+      "blue": 0,
+      "green": 3,
+      "red": 3,
+      "black": 5
+    }
+  },
+  {
+    "id": "T3-007",
+    "tier": 3,
+    "bonus": "blue",
+    "prestige": 5,
+    "cost": {
+      "white": 7,
+      "blue": 3,
+      "green": 0,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T3-008",
+    "tier": 3,
+    "bonus": "blue",
+    "prestige": 4,
+    "cost": {
+      "white": 7,
+      "blue": 0,
+      "green": 0,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T3-009",
+    "tier": 3,
+    "bonus": "white",
+    "prestige": 3,
+    "cost": {
+      "white": 0,
+      "blue": 3,
+      "green": 3,
+      "red": 5,
+      "black": 3
+    }
+  },
+  {
+    "id": "T3-010",
+    "tier": 3,
+    "bonus": "white",
+    "prestige": 4,
+    "cost": {
+      "white": 3,
+      "blue": 0,
+      "green": 0,
+      "red": 3,
+      "black": 6
+    }
+  },
+  {
+    "id": "T3-011",
+    "tier": 3,
+    "bonus": "white",
+    "prestige": 5,
+    "cost": {
+      "white": 3,
+      "blue": 0,
+      "green": 0,
+      "red": 0,
+      "black": 7
+    }
+  },
+  {
+    "id": "T3-012",
+    "tier": 3,
+    "bonus": "white",
+    "prestige": 4,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 0,
+      "red": 0,
+      "black": 7
+    }
+  },
+  {
+    "id": "T3-013",
+    "tier": 3,
+    "bonus": "green",
+    "prestige": 3,
+    "cost": {
+      "white": 5,
+      "blue": 3,
+      "green": 0,
+      "red": 3,
+      "black": 3
+    }
+  },
+  {
+    "id": "T3-014",
+    "tier": 3,
+    "bonus": "green",
+    "prestige": 4,
+    "cost": {
+      "white": 3,
+      "blue": 6,
+      "green": 3,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T3-015",
+    "tier": 3,
+    "bonus": "green",
+    "prestige": 4,
+    "cost": {
+      "white": 0,
+      "blue": 7,
+      "green": 0,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T3-016",
+    "tier": 3,
+    "bonus": "green",
+    "prestige": 5,
+    "cost": {
+      "white": 0,
+      "blue": 7,
+      "green": 3,
+      "red": 0,
+      "black": 0
+    }
+  },
+  {
+    "id": "T3-017",
+    "tier": 3,
+    "bonus": "black",
+    "prestige": 4,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 3,
+      "red": 6,
+      "black": 3
+    }
+  },
+  {
+    "id": "T3-018",
+    "tier": 3,
+    "bonus": "black",
+    "prestige": 4,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 0,
+      "red": 7,
+      "black": 0
+    }
+  },
+  {
+    "id": "T3-019",
+    "tier": 3,
+    "bonus": "black",
+    "prestige": 3,
+    "cost": {
+      "white": 3,
+      "blue": 3,
+      "green": 5,
+      "red": 3,
+      "black": 0
+    }
+  },
+  {
+    "id": "T3-020",
+    "tier": 3,
+    "bonus": "black",
+    "prestige": 5,
+    "cost": {
+      "white": 0,
+      "blue": 0,
+      "green": 0,
+      "red": 7,
+      "black": 3
+    }
+  }
+]
