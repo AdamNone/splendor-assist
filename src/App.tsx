@@ -522,22 +522,55 @@ export default function App() {
 
       <section className="progress">
         {mode === 'cards' ? (
-          TIERS.map((t) => (
-            <div key={t} className="progress-row">
-              <span className="progress-label">Tier {t}</span>
-              <div className="progress-bar">
-                <div
-                  className="progress-fill"
-                  style={{
-                    width: `${Math.min(100, (tierCounts[t] / TIER_TOTALS[t]) * 100)}%`,
-                  }}
-                />
+          TIERS.map((t) => {
+            const expected = TIER_BONUS_TARGET[t];
+            const bonusCounts: Record<Color, number> = emptyCount();
+            for (const c of data.cards) {
+              if (c.tier === t) bonusCounts[c.bonus] += 1;
+            }
+            return (
+              <div key={t} className="progress-row">
+                <span className="progress-label">Tier {t}</span>
+                <div className="progress-bar">
+                  <div
+                    className="progress-fill"
+                    style={{
+                      width: `${Math.min(100, (tierCounts[t] / TIER_TOTALS[t]) * 100)}%`,
+                    }}
+                  />
+                </div>
+                <span className="progress-count">
+                  {tierCounts[t]} / {TIER_TOTALS[t]}
+                </span>
+                <div className="bonus-breakdown" aria-label={`Tier ${t} bonus distribution`}>
+                  {COLORS.map((col) => {
+                    const n = bonusCounts[col];
+                    const status =
+                      n > expected
+                        ? 'over'
+                        : n === expected
+                          ? 'full'
+                          : n === 0
+                            ? 'empty'
+                            : 'partial';
+                    return (
+                      <span
+                        key={col}
+                        className={`bonus-chip ${status}`}
+                        style={{
+                          background: COLOR_HEX[col],
+                          color: col === 'white' ? '#1f2937' : '#fff',
+                        }}
+                        title={`${n} of ${expected} ${col}-bonus cards in tier ${t}`}
+                      >
+                        {n}
+                      </span>
+                    );
+                  })}
+                </div>
               </div>
-              <span className="progress-count">
-                {tierCounts[t]} / {TIER_TOTALS[t]}
-              </span>
-            </div>
-          ))
+            );
+          })
         ) : (
           <div className="progress-row">
             <span className="progress-label">Nobles</span>
@@ -802,12 +835,28 @@ export default function App() {
                         </tr>,
                       ];
                       if (issues.length > 0) {
+                        const hasSelfBonus = c.cost[c.bonus] > 0;
                         rows.push(
                           <tr key={`${c.id}-issues`} className="issues-row">
                             <td colSpan={5}>
                               {issues.map((s, i) => (
                                 <div key={i}>⚠ {s}</div>
                               ))}
+                              {hasSelfBonus && (
+                                <button
+                                  type="button"
+                                  className="suggest-fix"
+                                  onClick={() =>
+                                    startEditCard({
+                                      ...c,
+                                      cost: { ...c.cost, [c.bonus]: 0 },
+                                    })
+                                  }
+                                  title={`Open ${c.id} in edit mode with the ${c.bonus} column pre-zeroed so you can re-enter from the card`}
+                                >
+                                  Quick fix: clear {c.bonus} column &amp; edit
+                                </button>
+                              )}
                             </td>
                           </tr>,
                         );

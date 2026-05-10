@@ -195,6 +195,22 @@ section {
   color: #92400e;
   line-height: 1.5;
 }
+.suggest-fix {
+  margin-top: 8px;
+  padding: 5px 10px;
+  background: #fff;
+  border: 1px solid #fbbf24;
+  border-radius: 6px;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+}
+.suggest-fix:hover {
+  background: #fef3c7;
+  border-color: #f59e0b;
+}
 
 h2 {
   margin: 0 0 16px;
@@ -216,11 +232,33 @@ h2 code {
 }
 .progress-row {
   display: grid;
-  grid-template-columns: 60px 1fr 70px;
+  grid-template-columns: 60px 1fr 70px auto;
   align-items: center;
   gap: 12px;
   font-size: 13px;
 }
+.bonus-breakdown {
+  display: flex;
+  gap: 4px;
+}
+.bonus-chip {
+  min-width: 26px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+  border: 2px solid transparent;
+  transition: opacity 100ms ease, border-color 100ms ease;
+}
+.bonus-chip.empty { opacity: 0.3; }
+.bonus-chip.partial { opacity: 0.65; }
+.bonus-chip.full { opacity: 1; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08); }
+.bonus-chip.over { opacity: 1; border-color: #dc2626; }
 .progress-bar {
   height: 8px;
   background: #f3f4f6;
