@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { greedyAgent, randomAgent } from './agents';
-import { evaluateBaseline, evaluateV2 } from './evaluate';
+import { evaluateBaseline, evaluateV2, evaluateV3 } from './evaluate';
 import { seededRng } from './setup';
 import { playMatch } from './tournament';
 
@@ -40,6 +40,19 @@ describe('experiment: v2 (with noble proximity) vs baseline', () => {
     const result = playMatch(
       greedyAgent(evaluateV2),
       greedyAgent(evaluateBaseline),
+      { games: 12, rng: seededRng(42) },
+    );
+    expect(result.aWins).toBeGreaterThanOrEqual(result.bWins);
+  }, 60_000);
+});
+
+describe('experiment: v3 (with opponent_threat) vs v2', () => {
+  // 50-game spot-checks at seeds 7 / 11 / 23 show v3 wins by +16 / +16 / +22 pp.
+  // Conservative bar: v3 must win at least as many as v2.
+  it('v3 wins at least as many head-to-head games as v2', () => {
+    const result = playMatch(
+      greedyAgent(evaluateV3),
+      greedyAgent(evaluateV2),
       { games: 12, rng: seededRng(42) },
     );
     expect(result.aWins).toBeGreaterThanOrEqual(result.bWins);

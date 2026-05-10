@@ -5,7 +5,10 @@ import {
   evaluate,
   evaluateBaseline,
   evaluateV2,
+  evaluateV3,
+  gemPressureFeature,
   nobleProximityFeature,
+  opponentThreatFeature,
   TERMINAL_LOSS,
   TERMINAL_WIN,
 } from './evaluate';
@@ -194,10 +197,88 @@ describe('engine value feature', () => {
   });
 });
 
+describe('gem pressure feature', () => {
+  it('returns 0 below the 7-gem threshold', () => {
+    const s = makeState({
+      players: [
+        player({ gems: { white: 3, blue: 2, green: 1, red: 0, black: 1, gold: 0 } }),
+        player(),
+      ],
+    });
+    expect(gemPressureFeature(s, 0)).toBe(0);
+  });
+
+  it('returns -1, -2, -3 at 8, 9, 10 gems', () => {
+    const at = (n: number) =>
+      makeState({
+        players: [
+          player({ gems: { white: n, blue: 0, green: 0, red: 0, black: 0, gold: 0 } }),
+          player(),
+        ],
+      });
+    expect(gemPressureFeature(at(8), 0)).toBe(-1);
+    expect(gemPressureFeature(at(9), 0)).toBe(-2);
+    expect(gemPressureFeature(at(10), 0)).toBe(-3);
+  });
+});
+
+describe('opponent threat feature', () => {
+  it('returns 0 with no opponents who can afford anything', () => {
+    const s = makeState({ players: [player(), player()] });
+    expect(opponentThreatFeature(s, 0)).toBe(0);
+  });
+
+  it('penalizes prestige of cards an opponent can afford', () => {
+    const cheap = card('T1-001', 1, 'white', 1, { blue: 1 });
+    const s = makeState({
+      faceUp: { 1: [cheap, null, null, null] },
+      players: [
+        player(),
+        player({ gems: { white: 0, blue: 1, green: 0, red: 0, black: 0, gold: 0 } }),
+      ],
+    });
+    expect(opponentThreatFeature(s, 0)).toBe(-1);
+  });
+
+  it('changes when player buys a card the opponent could have bought', () => {
+    const cheap = card('T1-001', 1, 'white', 1, { blue: 1 });
+    const before = makeState({
+      faceUp: { 1: [cheap, null, null, null] },
+      players: [
+        player(),
+        player({ gems: { white: 0, blue: 1, green: 0, red: 0, black: 0, gold: 0 } }),
+      ],
+    });
+    const after = makeState({
+      faceUp: { 1: [null, null, null, null] },
+      players: [
+        player(),
+        player({ gems: { white: 0, blue: 1, green: 0, red: 0, black: 0, gold: 0 } }),
+      ],
+    });
+    expect(opponentThreatFeature(after, 0)).toBeGreaterThan(opponentThreatFeature(before, 0));
+  });
+});
+
+describe('v3 evaluator includes opponent threat', () => {
+  it('scores higher than v2 when opponents have many threats blocked', () => {
+    const cheap = card('T1-001', 1, 'white', 1, { blue: 1 });
+    const board = makeState({
+      faceUp: { 1: [cheap, cheap, cheap, cheap] },
+      players: [
+        player(),
+        player({ gems: { white: 0, blue: 4, green: 0, red: 0, black: 0, gold: 0 } }),
+      ],
+    });
+    // v3 penalizes the threats; v2 doesn't see them. So evaluateV2 > evaluateV3 here.
+    expect(evaluateV2(board, 0)).toBeGreaterThan(evaluateV3(board, 0));
+  });
+});
+
 describe('current evaluator alias', () => {
-  it('evaluate alias points at v2 (concentration + engine_value were rejected; see diary)', () => {
+  it('evaluate alias points at v3 (opponent_threat is the current best)', () => {
     const c = card('CW', 1, 'white');
     const s = makeState({ players: [player({ purchased: [c, c] }), player()] });
-    expect(evaluate(s, 0)).toBe(evaluateV2(s, 0));
+    expect(evaluate(s, 0)).toBe(evaluateV3(s, 0));
   });
 });

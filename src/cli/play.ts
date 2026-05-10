@@ -1,6 +1,6 @@
 import { greedyAgent, randomAgent } from '../game/agents';
 import { applyTurn, isTerminal, winner } from '../game/apply';
-import { evaluateBaseline, evaluateV2 } from '../game/evaluate';
+import { evaluateBaseline, evaluateV2, evaluateV3 } from '../game/evaluate';
 import { legalActions } from '../game/legalActions';
 import { formatGameEnd, formatPlayer, narrate } from '../game/narrate';
 import { initialState, seededRng } from '../game/setup';
@@ -68,6 +68,7 @@ const playTournament = (games: number, seed: number): void => {
 const EVALUATORS: Record<string, Feature> = {
   baseline: evaluateBaseline,
   v2: evaluateV2,
+  v3: evaluateV3,
 };
 
 const compare = (

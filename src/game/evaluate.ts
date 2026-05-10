@@ -1,6 +1,7 @@
 import { COLORS, TIERS } from './types';
 import type { Color, GameState, Noble, PlayerIndex, PlayerState } from './types';
 import { isTerminal, winner } from './apply';
+import { computePayment, totalGems } from './gems';
 
 export const TERMINAL_WIN = 1000;
 export const TERMINAL_LOSS = -1000;
@@ -167,7 +168,66 @@ export const engineValueFeature: Feature = (state, player) => {
   return score;
 };
 
-// `evaluate` always points at the current best evaluator. v2 currently leads.
-// Engine value (Experiment 4) and concentration (Experiment 3) were both
-// rejected — see diary/phase-01-evaluator.md.
-export const evaluate: Feature = evaluateV2;
+// === Feature 6: gem hand-cap pressure ===
+// Penalize states where the player is hoarding gems near the 10-cap. At
+// 10, a take action is blocked and the next reserve will force a discard;
+// even at 8-9 the player has very little flexibility. Encourages spending
+// gems on cards rather than stockpiling.
+//
+//   pressure(total) = -max(0, total - 7)
+//
+// → 0 at ≤7 gems, then -1 / -2 / -3 at 8 / 9 / 10. Stable (depends only on
+// the player's own gem count) so it composes cleanly with greedy lookahead.
+export const gemPressureFeature: Feature = (state, player) => {
+  const p = state.players[player];
+  if (p === undefined) return 0;
+  const total = totalGems(p.gems);
+  return Math.min(0, 7 - total);
+};
+
+// === Feature 7: opponent threat ===
+// Sum of prestige across face-up cards each *opponent* could afford right
+// now. Negated, since high opponent buying power is bad for `me`. Unlike
+// engine_value or gem_pressure, this *changes* with my action: if I buy a
+// card opponents could have afforded, the threat drops. This means greedy
+// can use it to bias toward "blocking" buys.
+export const opponentThreatFeature: Feature = (state, me) => {
+  let threat = 0;
+  for (let i = 0; i < state.players.length; i++) {
+    if (i === me) continue;
+    const opp = state.players[i];
+    if (opp === undefined) continue;
+    for (const tier of TIERS) {
+      for (const slot of state.faceUp[tier]) {
+        if (slot === null) continue;
+        if (computePayment(slot, opp) !== null) {
+          threat += slot.prestige;
+        }
+      }
+    }
+    for (const r of opp.reserved) {
+      if (computePayment(r.card, opp) !== null) {
+        threat += r.card.prestige;
+      }
+    }
+  }
+  return threat === 0 ? 0 : -threat;
+};
+
+// === Phase 1 v3 ===
+// v2 + opponent_threat. Hypothesis: action-sensitive (my buys block their
+// threats), so unlike static gem_pressure / engine_value it should
+// differentiate among my legal actions in a way that helps.
+export const FEATURES_V3: readonly WeightedFeature[] = [
+  ...FEATURES_V2,
+  { name: 'opponent_threat', weight: 0.5, fn: opponentThreatFeature },
+];
+
+export const evaluateV3: Feature = (state, player) =>
+  evaluateWith(FEATURES_V3, state, player);
+
+// `evaluate` always points at the current best evaluator. v3 (with
+// opponent_threat) currently leads. Rejected en route: concentration
+// (Experiment 3), engine_value (Experiment 4), gem_pressure (Experiment 5).
+// See diary/phase-01-evaluator.md.
+export const evaluate: Feature = evaluateV3;

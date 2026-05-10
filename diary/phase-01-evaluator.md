@@ -177,6 +177,75 @@ Hypothesis: even the simplest scoring function should beat random play.
 
 **Result (10 games, seed 42):** greedy v1 won 10/10. Baseline confirmed.
 
+### Experiment 6 — opponent_threat vs v2 [ACCEPTED]
+
+**Hypothesis.** Sum the prestige of every face-up (and reserved) card any
+opponent could currently afford; negate it to make "high opponent
+buying power" bad for `me`. Crucially, this feature *changes when I
+move*: if I buy a card opponents could afford, the threat drops. So
+unlike static features, opponent_threat genuinely differentiates among
+my legal actions.
+
+**Implementation.** `opponentThreatFeature` in `src/game/evaluate.ts`,
+weight 0.5 on top of v2.
+
+**Results (50 games head-to-head against v2):**
+
+| Seed | v3 wins | v2 wins | Draws | Δ (pp) |
+|---|---|---|---|---|
+|  7 | 25 | 17 | 8  | **+16.0** |
+| 11 | 27 | 19 | 4  | **+16.0** |
+| 23 | 26 | 15 | 9  | **+22.0** |
+
+Average +18 pp across 150 games. Big, robust, consistent. Matches
+the magnitude of v2's noble-proximity gain (+20 pp).
+
+**Interpretation.** The contrast with the previous three failed
+experiments crystallizes the pattern:
+
+  > A 1-ply greedy agent benefits from features whose value **changes
+  > as a function of the agent's own action**. Static features (like
+  > gem_pressure) and noisy dynamic features (like engine_value)
+  > don't differentiate among my legal actions in stable, helpful
+  > ways. Action-sensitive features (noble_proximity, opponent_threat)
+  > do — they reshape the comparison between candidate moves so that
+  > buying a denial card legitimately scores higher than taking gems.
+
+**Decision: accepted.** v3 = v2 + opponent_threat. Promoted to default
+`evaluate`. Tournament regression test added.
+
+### Experiment 5 — gem_pressure vs v2 [REJECTED]
+
+**Hypothesis.** Penalize gem hoards near the 10-cap (`-max(0, total - 7)`)
+to push greedy toward spending instead of stockpiling. Stable signal
+(only depends on the player's own gem count) so it should compose
+cleanly with greedy lookahead.
+
+**Results (50 games head-to-head against v2, weight 0.5):**
+
+| Seed | v3 wins | v2 wins | Draws | Δ (pp) |
+|---|---|---|---|---|
+|  7 | 12 | 22 |  16 | **−20.0** |
+| 11 | 14 | 21 |  15 | **−14.0** |
+| 23 | 14 | 28 |   8 | **−28.0** |
+
+Net across 150 games: **−21 pp.** The strongest negative result so
+far.
+
+**Interpretation.** The penalty falls unevenly across gem-adding
+actions: take3 adds 3 gems (most penalty), take2 adds 2, reserve adds
+1 gold. So greedy biased toward reserve over take when above the
+threshold. But **reserves don't give the colored gems you need to
+buy** — they yield gold (a wildcard) and stash a card. The agent ends
+up with a hand of gold and no colored gems, paying expensively for
+every buy. Stalling rather than spending.
+
+The lesson refines the pattern from Experiments 3-4: even a stable
+feature can fail if it asymmetrically penalizes the action *types*
+the agent needs to keep available.
+
+**Decision: rejected.** Function kept exported for documentation.
+
 ### Experiment 4 — demand-weighted engine value vs v2 [REJECTED]
 
 **Hypothesis (from F5).** Bonuses for colors that lots of remaining cards
@@ -301,16 +370,64 @@ npm run play            # one game, narrated
 npm run match 30        # greedy vs random, 30 games
 ```
 
-## Next features queued (in expected impact order)
+## Status after Phase 1 v3
 
-1. **Color concentration bonus** (F3) — reward `max(bonuses)` so a
-   tall white tower beats a flat one of each. Should help T2/T3
-   anchor cards become reachable.
-2. **Engine value with color demand** (F5) — replace the flat
-   `0.5 * bonus_count` with `Σ bonuses[c] * remaining_demand[c]` where
-   demand is computed from cards still on the board. Should make the
-   evaluator phase-aware automatically.
-3. **Opponent threat** — penalty proportional to opponents' prestige.
-   Triggers blocking moves when the game is close.
-4. **Gem hand-cap pressure** — score gems above ~7 at a discount
-   (close to forced discard). Discourages hoarding.
+The evaluator is now:
+
+```
+evaluate = 1.0 × prestige
+         + 0.5 × bonus_count
+         + 1.0 × noble_proximity
+         + 0.5 × opponent_threat
+```
+
+Win rates:
+
+| Match               | Result (~50-150 games each) |
+|---|---|
+| greedy vs random    | ~73% wins, no losses (rest are stalls) |
+| v3 vs v2            | +18 pp (50% / 32% / 18% draws) |
+| v2 vs baseline      | +20 pp |
+
+Two consecutive features now contributing **+18 to +20 pp** each.
+
+## Lesson from the rejected experiments
+
+Three rejections (concentration, engine_value, gem_pressure) produced a
+clearer rule than any single experiment:
+
+**A 1-ply greedy agent benefits from features that change in response
+to the agent's own action.**
+
+- Action-sensitive features (`noble_proximity`, `opponent_threat`):
+  buying a card meaningfully shifts the score → greedy uses the
+  signal to discriminate among legal actions → wins.
+- Static features (`gem_pressure`): don't change *across* my legal
+  options on a single turn (or change asymmetrically in unhelpful
+  ways) → greedy isn't pulled toward better moves → loses.
+- Dynamic but state-defined features (`engine_value`): the value
+  of the same bonus shifts every turn as the board churns → greedy's
+  cross-action comparisons are noisy → loses.
+
+This is a structural property of depth-1 search, not a fact about
+Splendor. With Phase 2 lookahead the picture changes — at depth 2+,
+the evaluator can leverage features that pay off "next turn" because
+the search literally simulates next turn.
+
+## Phase 1 status
+
+**Done:**
+- Data analysis (F1–F5)
+- Engine + agents + tournament + CLI
+- 4 evaluator experiments (2 wins, 3 losses); current best is v3.
+
+**Remaining options:**
+- More Phase 1 features. The pattern above gives a clearer hypothesis:
+  any new feature should be tested for "does its value depend on which
+  legal action I picked?" If not, it likely won't help at depth 1.
+  Plausible candidates: blocking score (delta of opponent_threat), card
+  affordability lookahead.
+- **Pivot to Phase 2 (lookahead search).** Depth 2/3 with alpha-beta
+  pruning — biggest expected gain. Will likely re-enable the
+  experiments that just failed (concentration, engine_value).
+- Build a real input UI on top of v3 — usable today.
