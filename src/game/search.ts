@@ -5,20 +5,33 @@ import { legalActions } from './legalActions';
 import type { Action, GameState, PlayerIndex } from './types';
 
 export type SearchOptions = {
-  /** Number of plies to look ahead. depth=1 is equivalent to 1-ply greedy. */
-  depth: number;
+  /** Search to a fixed depth. Mutually exclusive with `timeMs`. */
+  depth?: number;
+  /** Iterative deepening with this time budget (ms). Mutually exclusive with `depth`. */
+  timeMs?: number;
   /** Leaf evaluator. Defaults to the current best (`evaluate`). */
   evalFn?: Feature;
 };
 
-// =============================================================================
-// Multi-player max-N (used for 3-4 player matches)
-// =============================================================================
-
 /**
- * Build a vector of leaf scores indexed by player. Used by max-N to track
- * each player's utility at a given state.
+ * Thrown by recursive search calls when the iterative-deepening deadline
+ * has passed. The outer loop catches it and falls back to the previous
+ * completed depth's best move.
  */
+class SearchTimeout extends Error {
+  constructor() {
+    super('search timeout');
+    this.name = 'SearchTimeout';
+  }
+}
+
+const overDeadline = (deadline: number | undefined): boolean =>
+  deadline !== undefined && Date.now() >= deadline;
+
+const checkDeadline = (deadline: number | undefined): void => {
+  if (overDeadline(deadline)) throw new SearchTimeout();
+};
+
 const evalVec = (state: GameState, evalFn: Feature): number[] => {
   const out: number[] = new Array(state.players.length);
   for (let i = 0; i < state.players.length; i++) {
@@ -28,20 +41,37 @@ const evalVec = (state: GameState, evalFn: Feature): number[] => {
 };
 
 /**
- * Multi-player max-N. Recursively expand legal actions; at each node, the
- * player whose turn it is picks the action that maximizes their *own* leaf
- * score; the returned vector carries every player's leaf score under that
- * choice.
- *
- * Trade-off vs alpha-beta: max-N has no clean pruning rule (each player
- * has a different objective), so it's strictly slower. We accept that for
- * 3-4 player matches where alpha-beta would be wrong (paranoid pruning
- * implies coalition between opponents, which over-prunes the search tree).
- *
- * Reveals are resolved deterministically via `applyTurn` (top of deck).
- * Phase 3 ISMCTS will handle the stochasticity properly.
+ * Sort actions by 1-ply evaluator score (descending) from the active
+ * player's perspective. Used for move ordering at the root: alpha-beta
+ * prunes more when likely-best moves are tried first, and even max-N
+ * benefits because it short-circuits the "is this the new best?" check
+ * earlier on average.
  */
-const maxN = (state: GameState, depth: number, evalFn: Feature): number[] => {
+const sortedByScore = (
+  state: GameState,
+  actions: Action[],
+  evalFn: Feature,
+): Action[] => {
+  const me = state.currentPlayer;
+  const scored = actions.map((a) => ({
+    a,
+    score: evalFn(applyTurn(state, a), me),
+  }));
+  scored.sort((x, y) => y.score - x.score);
+  return scored.map((s) => s.a);
+};
+
+// =============================================================================
+// Multi-player max-N
+// =============================================================================
+
+const maxN = (
+  state: GameState,
+  depth: number,
+  evalFn: Feature,
+  deadline: number | undefined,
+): number[] => {
+  checkDeadline(deadline);
   if (depth === 0 || isTerminal(state)) return evalVec(state, evalFn);
   const actions = legalActions(state);
   if (actions.length === 0) return evalVec(state, evalFn);
@@ -50,7 +80,7 @@ const maxN = (state: GameState, depth: number, evalFn: Feature): number[] => {
   let bestForMe = -Infinity;
   for (const action of actions) {
     const next = applyTurn(state, action);
-    const vec = maxN(next, depth - 1, evalFn);
+    const vec = maxN(next, depth - 1, evalFn, deadline);
     const myScore = vec[me];
     if (myScore !== undefined && myScore > bestForMe) {
       bestForMe = myScore;
@@ -60,19 +90,23 @@ const maxN = (state: GameState, depth: number, evalFn: Feature): number[] => {
   return best ?? evalVec(state, evalFn);
 };
 
-const maxNSearch = (state: GameState, options: SearchOptions): Action => {
-  const evalFn = options.evalFn ?? evaluate;
+const maxNSearch = (
+  state: GameState,
+  evalFn: Feature,
+  depth: number,
+  deadline: number | undefined,
+): Action => {
   const actions = legalActions(state);
-  if (actions.length === 0) {
-    throw new Error('searchBestAction: no legal actions');
-  }
+  if (actions.length === 0) throw new Error('searchBestAction: no legal actions');
+  // Root move ordering only applies for depth ≥ 2 (at depth 1 it's wasted work).
+  const ordered = depth >= 2 ? sortedByScore(state, actions, evalFn) : actions;
   const me = state.currentPlayer;
-  let bestAction = actions[0];
+  let bestAction = ordered[0];
   if (bestAction === undefined) throw new Error('searchBestAction: empty list');
   let bestScore = -Infinity;
-  for (const action of actions) {
+  for (const action of ordered) {
     const next = applyTurn(state, action);
-    const vec = maxN(next, options.depth - 1, evalFn);
+    const vec = maxN(next, depth - 1, evalFn, deadline);
     const myScore = vec[me];
     if (myScore !== undefined && myScore > bestScore) {
       bestScore = myScore;
@@ -86,18 +120,6 @@ const maxNSearch = (state: GameState, options: SearchOptions): Action => {
 // 2-player paranoid alpha-beta
 // =============================================================================
 
-/**
- * Alpha-beta search from `me`'s perspective. At `me`'s turns we maximize
- * `evalFn(state, me)`; at the opponent's turns we minimize it (paranoid
- * model — assume the opponent picks whatever is worst for `me`).
- *
- * Splendor isn't strictly zero-sum, but it's close: a player only wins by
- * reaching 15 first, so each player's incentive is to slow the others down.
- * Paranoid pruning is a pragmatic fit and gets us proper alpha-beta cuts.
- *
- * For 3+ players this would over-prune (it implies coalition); the
- * dispatcher in `searchBestAction` falls back to max-N in that case.
- */
 const alphaBeta = (
   state: GameState,
   depth: number,
@@ -105,7 +127,9 @@ const alphaBeta = (
   beta: number,
   me: PlayerIndex,
   evalFn: Feature,
+  deadline: number | undefined,
 ): number => {
+  checkDeadline(deadline);
   if (depth === 0 || isTerminal(state)) return evalFn(state, me);
   const actions = legalActions(state);
   if (actions.length === 0) return evalFn(state, me);
@@ -116,9 +140,9 @@ const alphaBeta = (
     let a = alpha;
     for (const action of actions) {
       const next = applyTurn(state, action);
-      const score = alphaBeta(next, depth - 1, a, beta, me, evalFn);
+      const score = alphaBeta(next, depth - 1, a, beta, me, evalFn, deadline);
       if (score > value) value = score;
-      if (value >= beta) break; // beta cutoff
+      if (value >= beta) break;
       if (value > a) a = value;
     }
     return value;
@@ -128,30 +152,33 @@ const alphaBeta = (
   let b = beta;
   for (const action of actions) {
     const next = applyTurn(state, action);
-    const score = alphaBeta(next, depth - 1, alpha, b, me, evalFn);
+    const score = alphaBeta(next, depth - 1, alpha, b, me, evalFn, deadline);
     if (score < value) value = score;
-    if (value <= alpha) break; // alpha cutoff
+    if (value <= alpha) break;
     if (value < b) b = value;
   }
   return value;
 };
 
-const alphaBetaSearch = (state: GameState, options: SearchOptions): Action => {
-  const evalFn = options.evalFn ?? evaluate;
+const alphaBetaSearch = (
+  state: GameState,
+  evalFn: Feature,
+  depth: number,
+  deadline: number | undefined,
+): Action => {
   const actions = legalActions(state);
-  if (actions.length === 0) {
-    throw new Error('searchBestAction: no legal actions');
-  }
+  if (actions.length === 0) throw new Error('searchBestAction: no legal actions');
+  const ordered = depth >= 2 ? sortedByScore(state, actions, evalFn) : actions;
   const me = state.currentPlayer;
-  let bestAction = actions[0];
+  let bestAction = ordered[0];
   if (bestAction === undefined) throw new Error('searchBestAction: empty list');
   let bestScore = -Infinity;
   let alpha = -Infinity;
   const beta = +Infinity;
 
-  for (const action of actions) {
+  for (const action of ordered) {
     const next = applyTurn(state, action);
-    const score = alphaBeta(next, options.depth - 1, alpha, beta, me, evalFn);
+    const score = alphaBeta(next, depth - 1, alpha, beta, me, evalFn, deadline);
     if (score > bestScore) {
       bestScore = score;
       bestAction = action;
@@ -162,25 +189,64 @@ const alphaBetaSearch = (state: GameState, options: SearchOptions): Action => {
 };
 
 // =============================================================================
-// Dispatcher
+// Dispatcher and iterative deepening
 // =============================================================================
+
+const fixedDepthSearch = (
+  state: GameState,
+  evalFn: Feature,
+  depth: number,
+  deadline: number | undefined,
+): Action => {
+  if (state.numPlayers === 2 && depth >= 3) {
+    return alphaBetaSearch(state, evalFn, depth, deadline);
+  }
+  return maxNSearch(state, evalFn, depth, deadline);
+};
+
+/**
+ * Iteratively deepen depth=1, 2, 3, ... until the time budget is used up
+ * or a hard depth ceiling is hit. The action returned is the best from the
+ * deepest *completed* depth — partially-completed deeper searches are
+ * discarded.
+ *
+ * Why a depth ceiling at all: if Splendor enters a state with very few
+ * legal actions, depth 6+ becomes feasible and we'd loop forever.
+ */
+const iterativeDeepening = (
+  state: GameState,
+  evalFn: Feature,
+  timeMs: number,
+): Action => {
+  const deadline = Date.now() + timeMs;
+  const actions = legalActions(state);
+  if (actions.length === 0) throw new Error('searchBestAction: no legal actions');
+  let bestAction = actions[0];
+  if (bestAction === undefined) throw new Error('searchBestAction: empty list');
+  const ceiling = 8;
+
+  for (let depth = 1; depth <= ceiling; depth++) {
+    try {
+      bestAction = fixedDepthSearch(state, evalFn, depth, deadline);
+    } catch (e) {
+      if (e instanceof SearchTimeout) return bestAction;
+      throw e;
+    }
+    if (overDeadline(deadline)) break;
+  }
+  return bestAction;
+};
 
 /**
  * Pick the best action for the active player.
  *
- * Algorithm choice depends on player count and search depth:
+ * Modes:
+ *   - `{ depth }` — fixed-depth search.
+ *   - `{ timeMs }` — iterative deepening within the time budget.
  *
- *   - 2-player at depth ≥ 3: paranoid alpha-beta. Pruning makes depth 3
- *     feasible (~200 ms/turn instead of ~2 s without). Empirically the
- *     extra ply of foresight more than compensates for the paranoid model
- *     error vs. max-N (tournament: search-d3 beats greedy(v3) by +44 pp;
- *     plain max-N at d3 is too slow to run).
- *   - 2-player at depth ≤ 2: max-N. Faster than alpha-beta at d2 *and*
- *     more accurate (the paranoid model assumes opp minimizes our eval,
- *     but the actual opponent maximizes its own; the difference matters
- *     more at shallow depths than the pruning saves).
- *   - 3+ players: max-N. Paranoid alpha-beta would over-prune by
- *     implying coalition between opponents.
+ * Algorithm chosen automatically:
+ *   - 2 players + depth ≥ 3 → paranoid alpha-beta (with root move ordering).
+ *   - everywhere else       → max-N (with root move ordering at depth ≥ 2).
  *
  * `depth=1` is equivalent to greedy in all cases.
  */
@@ -188,8 +254,12 @@ export const searchBestAction = (
   state: GameState,
   options: SearchOptions,
 ): Action => {
-  if (state.numPlayers === 2 && options.depth >= 3) {
-    return alphaBetaSearch(state, options);
+  const evalFn = options.evalFn ?? evaluate;
+  if (options.timeMs !== undefined) {
+    return iterativeDeepening(state, evalFn, options.timeMs);
   }
-  return maxNSearch(state, options);
+  if (options.depth !== undefined) {
+    return fixedDepthSearch(state, evalFn, options.depth, undefined);
+  }
+  throw new Error('searchBestAction: must provide depth or timeMs');
 };

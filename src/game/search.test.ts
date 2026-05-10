@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { greedyAgent, searchAgent } from './agents';
+import { greedyAgent, iterativeAgent, searchAgent } from './agents';
 import { evaluateV3 } from './evaluate';
 import { card, makeState, player } from './fixtures';
 
@@ -69,5 +69,34 @@ describe('searchAgent', () => {
     const action = searchAgent(2, evaluateV3)(s);
     expect(action).toBeDefined();
     expect(['take3', 'take2', 'reserve', 'buy']).toContain(action.type);
+  });
+});
+
+describe('iterativeAgent', () => {
+  it('returns a legal action within the time budget', () => {
+    const target = card('T1-001', 1, 'red', 1, { blue: 1 });
+    const s = makeState({
+      faceUp: { 1: [target, null, null, null] },
+      players: [player({ gems: { ...emptyGems(), blue: 1 } }), player()],
+      gemSupply: { white: 4, blue: 4, green: 4 },
+    });
+    const start = Date.now();
+    const action = iterativeAgent(200, evaluateV3)(s);
+    const elapsed = Date.now() - start;
+    expect(action).toBeDefined();
+    expect(['take3', 'take2', 'reserve', 'buy']).toContain(action.type);
+    // Should respect the budget within reason — let one full extra depth's
+    // worth of overrun slide.
+    expect(elapsed).toBeLessThan(1000);
+  });
+
+  it('with a generous budget, picks the same buy as fixed-depth search on a clear-buy state', () => {
+    const target = card('T1-001', 1, 'red', 1, { blue: 1 });
+    const s = makeState({
+      faceUp: { 1: [target, null, null, null] },
+      players: [player({ gems: { ...emptyGems(), blue: 1 } }), player()],
+      gemSupply: { white: 4, blue: 4, green: 4 },
+    });
+    expect(iterativeAgent(500, evaluateV3)(s).type).toBe('buy');
   });
 });

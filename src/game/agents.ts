@@ -60,8 +60,16 @@ export const greedyAgent = (evalFn: Evaluator = evaluate): Agent => (state) => {
  * best response. `depth=3` simulates one more ply.
  *
  * Branching factor in Splendor is roughly 20–30 actions per turn, so depth
- * costs roughly that exponentially. depth=2 is fast; depth=3 is the
- * practical ceiling without pruning.
+ * costs roughly that exponentially. depth=2 is fast; depth=3 needs alpha-beta.
  */
 export const searchAgent = (depth: number, evalFn: Evaluator = evaluate): Agent =>
   (state) => searchBestAction(state, { depth, evalFn });
+
+/**
+ * Iterative-deepening search with a fixed wall-clock budget per move.
+ * Searches depth 1, 2, 3, ... until the budget runs out, returning the
+ * deepest completed depth's best action. More user-friendly than fixed-depth
+ * search for interactive use ("spend up to 500ms thinking").
+ */
+export const iterativeAgent = (timeMs: number, evalFn: Evaluator = evaluate): Agent =>
+  (state) => searchBestAction(state, { timeMs, evalFn });

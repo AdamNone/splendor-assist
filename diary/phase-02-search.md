@@ -123,35 +123,92 @@ encodes the resulting decision: 2-player matches use max-N for depth
 ≤ 2 and alpha-beta for depth ≥ 3. 3+ player matches always use max-N
 (paranoid alpha-beta would imply coalition).
 
+## Experiment 9 — root move ordering and iterative deepening
+
+**Move ordering.** Before recursing, sort the root actions by 1-ply
+evaluator score (descending). Best-likely-first means alpha climbs
+fast and subsequent siblings are pruned earlier. The cost is one
+extra `applyTurn` + `evalFn` per root action, which is paid once per
+decision.
+
+**Result for search-d3 vs greedy(v3) (60 games across 2 seeds at 30
+games each):**
+
+| Variant | Seed 7 | Seed 100 | Net |
+|---|---|---|---|
+| With move ordering | +30 pp / 6.2 s/game | +27 pp / 6.5 s/game | **+28 pp** |
+| Without move ordering (Experiment 8) | +33 pp / 17.6 s/game | — | +33 pp at 12 games |
+
+Win rate is statistically the same; **wall-clock per game drops ~3x**.
+That's the win — same strength, much faster, so we can run more
+experiments in the same time budget. (A 12-game spot-check at seed 11
+came in at -58 pp; a 30-game sample at the same seed regressed to
+the mean. 12 games is genuinely too few to draw conclusions when
+games can flip on a single tie-break.)
+
+A subtlety: alpha-beta returns the same minimax value regardless of
+move order. But our root loop picks the *first* action to hit the max
+score, so move ordering changes which tied action wins. In Splendor,
+near-ties are common, so search results aren't perfectly deterministic
+across orderings — they're equivalent in expectation, not in any
+specific game.
+
+**Iterative deepening with time budget.** New `SearchOptions.timeMs`
+runs depth 1, 2, 3, ... until the budget is exhausted, returning the
+deepest *completed* depth's best action. Implemented via a
+`SearchTimeout` exception checked at every recursive call.
+
+**Result:** iterative is harder to evaluate with tournament noise.
+At seed 7, iter-300 vs greedy(v3) is +10 pp (12 games), iter-1000 vs
+search-d3 is +17 pp (12 games), iter-1000 vs greedy(v3) is -33 pp
+(12 games — plausibly noise; bigger sample needed). Time per turn
+averages ~600 ms with iter-1000.
+
+The point of iterative isn't a win-rate bump over fixed depth — it's
+**user-friendliness for interactive play**. "Spend up to 500 ms
+thinking" is a more natural knob for a UI than "always search to
+depth 3." Implementation lands now so the eventual UI can use it.
+
+**`iterativeAgent(timeMs)`** in `src/game/agents.ts`. CLI gains
+`iter-100`, `iter-300`, `iter-1000` as agent names alongside
+`search-d2` / `search-d3` / `search-d4`.
+
 ## What's left for Phase 2
 
-- **Move ordering for alpha-beta.** Sort the root actions by 1-ply
-  evaluator score before searching; better orderings produce more
-  pruning. Likely cuts depth-3 turn time from ~200 ms to ~100 ms,
-  which would put depth 4 in reach.
-- **Iterative deepening with time budget.** Search depth 1, 2, 3,
-  ... until the budget is spent. The previous iteration's best move
-  is the obvious move-ordering signal for the next.
-- **Re-run rejected Phase 1 features under search.** The pattern
-  predicts engine_value and concentration may pay off once the
-  evaluator is downstream of search rather than upstream. Worth
-  retesting with `searchAgent(3)`.
+- **Re-run rejected Phase 1 features under search.** Phase 1's lesson
+  predicted that `engine_value` and `concentration` may pay off once
+  the evaluator is downstream of search rather than upstream. Each
+  test is one tournament run — cheap to do.
+- **Move ordering at interior nodes / killer-move heuristic.**
+  Currently we order only at the root. Sorting at every level (or
+  remembering the best move from a sibling and trying it first) would
+  unlock more pruning, possibly putting depth 4 in reach interactively.
 - **Multi-player matches.** All experiments so far are 2-player.
-  Verify search-d2 max-N behaves sensibly with 3-4 players.
+  Verify behavior holds at 3-4 players with max-N.
+- **Fix tie-breaking determinism.** Two equivalent moves should always
+  resolve to the same one regardless of action enumeration order.
+  Cheap, removes a chunk of measurement noise.
 
 ## Phase 2 status
 
 **Done:**
-- `searchBestAction` + `searchAgent`.
+- `searchBestAction` + `searchAgent` + `iterativeAgent`.
 - Multi-player max-N (`maxN` / `maxNSearch`).
 - 2-player paranoid alpha-beta (`alphaBeta` / `alphaBetaSearch`).
 - Dispatcher routing by player count and depth.
-- 5 search tests (depth-1 ≡ greedy correctness anchor + depth-2/3
-  plausibility for both 2-player and 4-player).
+- Root move ordering by 1-ply evaluator score.
+- Iterative deepening with time budget and `SearchTimeout`-based
+  cancellation.
+- 7 search tests (depth-1 ≡ greedy correctness anchor + depth-2/3
+  plausibility for 2-player and 4-player + iterativeAgent budget
+  compliance).
 - Two regression matches in `tournament.test.ts`: max-N d2 ≥ greedy
   and alpha-beta d3 ≥ greedy.
-- CLI `compare` mode supports `search-d2` and `search-d3` agents.
+- CLI agents: `random / baseline / v2 / v3 / search-d2 / search-d3 /
+  search-d4 / iter-100 / iter-300 / iter-1000`.
 
 **Open:**
-- Move ordering, iterative deepening, multi-player verification, and
-  retesting the rejected Phase 1 features under search.
+- Re-running rejected Phase 1 features under search.
+- Interior-node move ordering / killer-move heuristic.
+- Multi-player verification.
+- Tie-breaking determinism.
