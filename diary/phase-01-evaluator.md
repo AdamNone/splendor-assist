@@ -177,6 +177,50 @@ Hypothesis: even the simplest scoring function should beat random play.
 
 **Result (10 games, seed 42):** greedy v1 won 10/10. Baseline confirmed.
 
+### Experiment 4 — demand-weighted engine value vs v2 [REJECTED]
+
+**Hypothesis (from F5).** Bonuses for colors that lots of remaining cards
+need are intrinsically more valuable than bonuses for colors little is left
+to demand. Replacing flat `0.5 × bonus_count` with `Σ bonuses[c] × demand_weight[c]`
+(where weight is normalized so uniform demand = 1) ties bonus value
+directly to the *current* board state — exactly the adaptive signal
+that Experiment 3's concentration prior lacked.
+
+**Implementation.** `engineValueFeature` in `src/game/evaluate.ts`,
+demand summed across face-up cards + remaining decks. Weights scaled so
+the average across colors is 1.0.
+
+**Results (50 games head-to-head against v2, three seeds, two compositions):**
+
+| Variant | Seed 7 | Seed 11 | Seed 23 | Net (150 games) |
+|---|---|---|---|---|
+| Replaces bonus_count, weight 0.5 | +8 pp | −10 pp | −14 pp | **−5.3 pp** |
+| Additive on top of bonus_count, weight 0.2 | +4 pp | −10 pp | −14 pp | **−6.7 pp** |
+
+Across both compositions and three seeds, v3 with engine_value averages
+slightly negative against v2. The variance between seeds (one win, two
+losses) is huge relative to the mean, indicating the feature is
+**noise-amplifying rather than signal-adding**.
+
+**Interpretation.** The demand signal *changes every turn* as cards are
+bought and revealed. A bonus's score under engine_value is therefore
+non-stationary — the same bonus is worth different amounts at different
+times. For a 1-ply greedy agent that compares post-action states, this
+non-stationarity confuses the comparison: actions look attractive on the
+turn the demand spikes for their color, then look bad when demand
+shifts. Stable, interpretable features (prestige, bonus_count) compose
+better with shallow lookahead.
+
+This generalizes the lesson from Experiment 3:
+
+  > A 1-ply greedy agent benefits from STABLE, interpretable features.
+  > Sophisticated/dynamic features may be theoretically better but
+  > destabilize the comparison across actions. Their value should
+  > emerge with deeper search, not at depth 1.
+
+**Decision: rejected.** `engineValueFeature` kept exported for
+documentation; not in any active `FEATURES_*` array.
+
 ### Experiment 3 — concentration (top-2 bonuses) vs v2 [REJECTED]
 
 **Hypothesis (from F3 + F4).** Every T3 card needs ≥5 of one color, so a

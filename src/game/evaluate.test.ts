@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   concentrationFeature,
+  engineValueFeature,
   evaluate,
   evaluateBaseline,
   evaluateV2,
@@ -158,8 +159,43 @@ describe('concentration feature', () => {
   });
 });
 
+describe('engine value feature', () => {
+  it('returns 0 when no demand exists in play', () => {
+    const s = makeState({ players: [player(), player()] });
+    expect(engineValueFeature(s, 0)).toBe(0);
+  });
+
+  it('with uniformly-demanded colors, equals bonus_count', () => {
+    // Build a state where each visible card costs 1 of each color so demand
+    // is uniform; then a player with 4 bonuses should score 4.0.
+    const c = card('CV', 1, 'white', 0, { white: 1, blue: 1, green: 1, red: 1, black: 1 });
+    const w = card('CW', 1, 'white');
+    const s = makeState({
+      faceUp: { 1: [c, c, c, c] },
+      players: [player({ purchased: [w, w, w, w] }), player()],
+    });
+    expect(engineValueFeature(s, 0)).toBeCloseTo(4.0, 5);
+  });
+
+  it('rewards bonuses in over-demanded colors more than under-demanded', () => {
+    // All face-up cards demand only red. A player with 1 red bonus should
+    // score ≥ a player with 1 white bonus.
+    const allRed = card('CR', 1, 'green', 0, { red: 4 });
+    const wCard = card('CW', 1, 'white');
+    const rCard = card('CR2', 1, 'red');
+    const s = makeState({
+      faceUp: { 1: [allRed, allRed, allRed, allRed] },
+      players: [
+        player({ purchased: [wCard] }), // white bonus, but no white demand
+        player({ purchased: [rCard] }), // red bonus, lots of red demand
+      ],
+    });
+    expect(engineValueFeature(s, 1)).toBeGreaterThan(engineValueFeature(s, 0));
+  });
+});
+
 describe('current evaluator alias', () => {
-  it('evaluate alias points at v2 (concentration was rolled back; see diary Experiment 3)', () => {
+  it('evaluate alias points at v2 (concentration + engine_value were rejected; see diary)', () => {
     const c = card('CW', 1, 'white');
     const s = makeState({ players: [player({ purchased: [c, c] }), player()] });
     expect(evaluate(s, 0)).toBe(evaluateV2(s, 0));

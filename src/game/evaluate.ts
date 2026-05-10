@@ -1,5 +1,5 @@
-import { COLORS } from './types';
-import type { GameState, Noble, PlayerIndex, PlayerState } from './types';
+import { COLORS, TIERS } from './types';
+import type { Color, GameState, Noble, PlayerIndex, PlayerState } from './types';
 import { isTerminal, winner } from './apply';
 
 export const TERMINAL_WIN = 1000;
@@ -120,4 +120,54 @@ export const concentrationFeature: Feature = (state, player) => {
 };
 
 // `evaluate` always points at the current best evaluator. v2 currently leads.
+
+// === Feature 5: demand-weighted engine value ===
+// Replaces the flat `bonus_count` with a per-color weighting derived from
+// what's actually still in play. For each color c:
+//
+//   weight[c] = (remaining_demand[c] / total_demand) * 5
+//
+// where remaining_demand counts every gem of color c demanded by cards still
+// face-up or in their respective decks. Average weight is 1 by construction,
+// so when demand is uniform the feature degenerates to flat bonus_count.
+//
+// Intuition: a white bonus is more valuable when 200 gems-worth of white-
+// costing cards remain to be bought than when only 50 do. The weight is also
+// time-decaying for free: as cards get bought, total demand drops; bonuses
+// of any color contribute less; the prestige term naturally takes over in
+// the late game.
+const remainingColorDemand = (state: GameState): Record<Color, number> => {
+  const out: Record<Color, number> = {
+    white: 0, blue: 0, green: 0, red: 0, black: 0,
+  };
+  for (const tier of TIERS) {
+    for (const slot of state.faceUp[tier]) {
+      if (!slot) continue;
+      for (const c of COLORS) out[c] += slot.cost[c];
+    }
+    for (const card of state.decks[tier]) {
+      for (const c of COLORS) out[c] += card.cost[c];
+    }
+  }
+  return out;
+};
+
+export const engineValueFeature: Feature = (state, player) => {
+  const p = state.players[player];
+  if (p === undefined) return 0;
+  const demand = remainingColorDemand(state);
+  let total = 0;
+  for (const c of COLORS) total += demand[c];
+  if (total === 0) return 0; // no cards left to buy; bonuses worthless going forward
+  let score = 0;
+  for (const c of COLORS) {
+    const weight = (demand[c] / total) * COLORS.length;
+    score += p.bonuses[c] * weight;
+  }
+  return score;
+};
+
+// `evaluate` always points at the current best evaluator. v2 currently leads.
+// Engine value (Experiment 4) and concentration (Experiment 3) were both
+// rejected — see diary/phase-01-evaluator.md.
 export const evaluate: Feature = evaluateV2;
