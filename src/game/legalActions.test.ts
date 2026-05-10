@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { legalActions } from './legalActions';
-import { card, makeState, player } from './fixtures';
+import { card, makeState, player, reservedCard } from './fixtures';
 
 describe('legalActions: take3', () => {
   it('enumerates all 3-color subsets when ≥3 colors available', () => {
@@ -48,7 +48,7 @@ describe('legalActions: take2', () => {
 describe('legalActions: reserve', () => {
   it('blocked when player already has 3 reserved', () => {
     const c = card('T1-001', 1, 'white', 0, { blue: 1 });
-    const p = player({ reserved: [c, c, c] });
+    const p = player({ reserved: [reservedCard(c), reservedCard(c), reservedCard(c)] });
     const state = makeState({
       players: [p, player()],
       faceUp: { 1: [c, null, null, null] },
@@ -135,7 +135,7 @@ describe('legalActions: buy', () => {
     const cheap = card('T1-001', 1, 'white', 0, { blue: 1 });
     const state = makeState({
       players: [
-        player({ reserved: [cheap], gems: { ...emptyGems(), blue: 1 } }),
+        player({ reserved: [reservedCard(cheap)], gems: { ...emptyGems(), blue: 1 } }),
         player(),
       ],
     });

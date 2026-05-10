@@ -7,6 +7,8 @@ import type {
   GemPool,
   Noble,
   PlayerState,
+  ReservedCard,
+  ReservedSource,
   Tier,
 } from './types';
 
@@ -38,6 +40,11 @@ export const gems = (overrides: Partial<GemPool> = {}): GemPool => ({
   ...emptyGemPool(),
   ...overrides,
 });
+
+export const reservedCard = (
+  c: Card,
+  reservedFrom: ReservedSource = 'faceUp',
+): ReservedCard => ({ card: c, reservedFrom });
 
 export const player = (overrides: Partial<PlayerState> = {}): PlayerState => {
   const purchased = overrides.purchased ?? [];

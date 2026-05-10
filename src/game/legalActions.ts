@@ -72,9 +72,9 @@ export const legalActions = (state: GameState): Action[] => {
     }
   }
   for (let i = 0; i < player.reserved.length; i++) {
-    const card = player.reserved[i];
-    if (card === undefined) continue;
-    const payment = computePayment(card, player);
+    const reserved = player.reserved[i];
+    if (reserved === undefined) continue;
+    const payment = computePayment(reserved.card, player);
     if (payment !== null) {
       actions.push({ type: 'buy', source: { kind: 'reserve', index: i }, payment });
     }

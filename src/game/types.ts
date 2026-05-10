@@ -28,10 +28,20 @@ export type FaceUpSlot = Card | null;
 
 export type PlayerIndex = 0 | 1 | 2 | 3;
 
+// Where a reserved card came from. Matters for opponent visibility:
+//   'faceUp' — everyone watched the player take it; identity is public.
+//   'deck'   — taken blind from the top of the deck; only the holder knows.
+export type ReservedSource = 'faceUp' | 'deck';
+
+export type ReservedCard = {
+  card: Card;
+  reservedFrom: ReservedSource;
+};
+
 export type PlayerState = {
   gems: GemPool;
   purchased: Card[];
-  reserved: Card[];
+  reserved: ReservedCard[];
   nobles: Noble[];
   // Engine-maintained caches. Always derivable from purchased + nobles, but
   // stored so search can read them in O(1) instead of recomputing on every leaf.
