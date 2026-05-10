@@ -3,6 +3,7 @@ import './App.css';
 
 type Color = 'white' | 'blue' | 'green' | 'red' | 'black';
 type Tier = 1 | 2 | 3;
+type Mode = 'cards' | 'nobles';
 
 type DraftCard = {
   id: string;
@@ -12,10 +13,23 @@ type DraftCard = {
   cost: Record<Color, number>;
 };
 
+type DraftNoble = {
+  id: string;
+  prestige: number;
+  requirement: Record<Color, number>;
+};
+
+type DraftData = {
+  cards: DraftCard[];
+  nobles: DraftNoble[];
+};
+
 const COLORS: Color[] = ['white', 'blue', 'green', 'red', 'black'];
 const TIERS: Tier[] = [1, 2, 3];
 const TIER_TOTALS: Record<Tier, number> = { 1: 40, 2: 30, 3: 20 };
-const STORAGE_KEY = 'splendor-cards-draft-v1';
+const NOBLES_TOTAL = 10;
+const STORAGE_KEY = 'splendor-draft-v2';
+const LEGACY_KEY = 'splendor-cards-draft-v1';
 
 const COLOR_HEX: Record<Color, string> = {
   white: '#f4ead5',
@@ -33,7 +47,7 @@ const KEY_TO_COLOR: Record<string, Color> = {
   k: 'black',
 };
 
-const emptyCost = (): Record<Color, number> => ({
+const emptyCount = (): Record<Color, number> => ({
   white: 0,
   blue: 0,
   green: 0,
@@ -41,58 +55,192 @@ const emptyCost = (): Record<Color, number> => ({
   black: 0,
 });
 
-const loadCards = (): DraftCard[] => {
+const sumColors = (m: Record<Color, number>): number =>
+  COLORS.reduce((s, c) => s + m[c], 0);
+
+const idTail = (id: string): number => {
+  const parts = id.split('-');
+  const last = parts[parts.length - 1];
+  if (last === undefined) return 0;
+  const n = parseInt(last, 10);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const loadData = (): DraftData => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw === null) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as DraftCard[]) : [];
+    if (raw !== null) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return {
+          cards: Array.isArray(parsed.cards) ? (parsed.cards as DraftCard[]) : [],
+          nobles: Array.isArray(parsed.nobles) ? (parsed.nobles as DraftNoble[]) : [],
+        };
+      }
+    }
+    const legacy = localStorage.getItem(LEGACY_KEY);
+    if (legacy !== null) {
+      const parsed = JSON.parse(legacy);
+      if (Array.isArray(parsed)) {
+        return { cards: parsed as DraftCard[], nobles: [] };
+      }
+    }
   } catch {
-    return [];
+    /* fall through */
   }
+  return { cards: [], nobles: [] };
 };
 
 export default function App() {
-  const [cards, setCards] = useState<DraftCard[]>(loadCards);
+  const [data, setData] = useState<DraftData>(loadData);
+  const [mode, setMode] = useState<Mode>('cards');
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Card form state
   const [tier, setTier] = useState<Tier>(1);
   const [bonus, setBonus] = useState<Color>('white');
   const [prestige, setPrestige] = useState<number>(0);
-  const [cost, setCost] = useState<Record<Color, number>>(emptyCost());
+  const [cost, setCost] = useState<Record<Color, number>>(emptyCount());
+
+  // Noble form state
+  const [noblePrestige, setNoblePrestige] = useState<number>(3);
+  const [requirement, setRequirement] = useState<Record<Color, number>>(emptyCount());
+
   const submitRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(cards));
-  }, [cards]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  }, [data]);
 
   const tierCounts: Record<Tier, number> = { 1: 0, 2: 0, 3: 0 };
-  for (const c of cards) tierCounts[c.tier] += 1;
-  const nextId = `T${tier}-${String(tierCounts[tier] + 1).padStart(3, '0')}`;
+  for (const c of data.cards) tierCounts[c.tier] += 1;
 
-  const submit = () => {
-    const newCard: DraftCard = {
-      id: nextId,
-      tier,
-      bonus,
-      prestige,
-      cost: { ...cost },
-    };
-    setCards((prev) => [...prev, newCard]);
+  const nextCardId = (() => {
+    let max = 0;
+    for (const c of data.cards) {
+      if (c.tier === tier) max = Math.max(max, idTail(c.id));
+    }
+    return `T${tier}-${String(max + 1).padStart(3, '0')}`;
+  })();
+
+  const nextNobleId = (() => {
+    let max = 0;
+    for (const n of data.nobles) max = Math.max(max, idTail(n.id));
+    return `N-${String(max + 1).padStart(3, '0')}`;
+  })();
+
+  const resetCardForm = () => {
     setPrestige(0);
-    setCost(emptyCost());
+    setCost(emptyCount());
+  };
+
+  const resetNobleForm = () => {
+    setNoblePrestige(3);
+    setRequirement(emptyCount());
+  };
+
+  const cancelEdit = () => {
+    if (editingId === null) return;
+    setEditingId(null);
+    if (mode === 'cards') resetCardForm();
+    else resetNobleForm();
+  };
+
+  const submitCard = () => {
+    if (editingId !== null) {
+      setData((prev) => ({
+        ...prev,
+        cards: prev.cards.map((c) =>
+          c.id === editingId ? { ...c, tier, bonus, prestige, cost: { ...cost } } : c,
+        ),
+      }));
+      setEditingId(null);
+    } else {
+      const newCard: DraftCard = {
+        id: nextCardId,
+        tier,
+        bonus,
+        prestige,
+        cost: { ...cost },
+      };
+      setData((prev) => ({ ...prev, cards: [...prev.cards, newCard] }));
+    }
+    resetCardForm();
     submitRef.current?.blur();
   };
 
-  const remove = (id: string) => {
-    setCards((prev) => prev.filter((c) => c.id !== id));
+  const submitNoble = () => {
+    if (editingId !== null) {
+      setData((prev) => ({
+        ...prev,
+        nobles: prev.nobles.map((n) =>
+          n.id === editingId
+            ? { ...n, prestige: noblePrestige, requirement: { ...requirement } }
+            : n,
+        ),
+      }));
+      setEditingId(null);
+    } else {
+      const newNoble: DraftNoble = {
+        id: nextNobleId,
+        prestige: noblePrestige,
+        requirement: { ...requirement },
+      };
+      setData((prev) => ({ ...prev, nobles: [...prev.nobles, newNoble] }));
+    }
+    resetNobleForm();
+    submitRef.current?.blur();
+  };
+
+  const submit = () => {
+    if (mode === 'cards') submitCard();
+    else submitNoble();
+  };
+
+  const startEditCard = (c: DraftCard) => {
+    setMode('cards');
+    setEditingId(c.id);
+    setTier(c.tier);
+    setBonus(c.bonus);
+    setPrestige(c.prestige);
+    setCost({ ...c.cost });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const startEditNoble = (n: DraftNoble) => {
+    setMode('nobles');
+    setEditingId(n.id);
+    setNoblePrestige(n.prestige);
+    setRequirement({ ...n.requirement });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const removeCard = (id: string) => {
+    if (editingId === id) cancelEdit();
+    setData((prev) => ({ ...prev, cards: prev.cards.filter((c) => c.id !== id) }));
+  };
+
+  const removeNoble = (id: string) => {
+    if (editingId === id) cancelEdit();
+    setData((prev) => ({ ...prev, nobles: prev.nobles.filter((n) => n.id !== id) }));
+  };
+
+  const switchMode = (next: Mode) => {
+    cancelEdit();
+    setMode(next);
   };
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const target = e.target;
       const inInput =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement;
+        target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
 
+      if (e.key === 'Escape' && editingId !== null) {
+        e.preventDefault();
+        cancelEdit();
+        return;
+      }
       if (e.key === 'Enter' && !inInput) {
         e.preventDefault();
         submit();
@@ -100,147 +248,222 @@ export default function App() {
       }
       if (inInput) return;
 
-      if (e.key === '1') setTier(1);
-      else if (e.key === '2') setTier(2);
-      else if (e.key === '3') setTier(3);
-
-      const colorByKey = KEY_TO_COLOR[e.key.toLowerCase()];
-      if (colorByKey !== undefined) setBonus(colorByKey);
+      if (mode === 'cards') {
+        if (e.key === '1') setTier(1);
+        else if (e.key === '2') setTier(2);
+        else if (e.key === '3') setTier(3);
+        const colorByKey = KEY_TO_COLOR[e.key.toLowerCase()];
+        if (colorByKey !== undefined) setBonus(colorByKey);
+      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   });
 
-  const exportJson = () => {
-    const blob = new Blob([JSON.stringify(cards, null, 2)], {
+  const exportJson = (kind: 'cards' | 'nobles') => {
+    const items = kind === 'cards' ? data.cards : data.nobles;
+    const blob = new Blob([JSON.stringify(items, null, 2)], {
       type: 'application/json',
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'splendor-cards.json';
+    a.download = `splendor-${kind}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  const totalCost = COLORS.reduce((s, c) => s + cost[c], 0);
+  const headingId = editingId !== null ? editingId : mode === 'cards' ? nextCardId : nextNobleId;
+  const headingLabel = editingId !== null ? 'Editing' : 'Next';
+
+  const renderColorRow = (
+    value: Record<Color, number>,
+    onChange: (next: Record<Color, number>) => void,
+    ariaPrefix: string,
+  ) => (
+    <div className="cost-row">
+      {COLORS.map((c) => (
+        <div key={c} className="cost-cell">
+          <div className="swatch" style={{ background: COLOR_HEX[c] }} title={c} />
+          <input
+            type="number"
+            min={0}
+            value={value[c]}
+            onChange={(e) =>
+              onChange({ ...value, [c]: Math.max(0, Number(e.target.value) || 0) })
+            }
+            onFocus={(e) => e.target.select()}
+            aria-label={`${ariaPrefix} ${c}`}
+          />
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <div className="app">
       <header>
-        <h1>Splendor card entry</h1>
+        <h1>Splendor data entry</h1>
         <p className="sub">
-          Type or click. <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> set tier,{' '}
-          <kbd>W</kbd>/<kbd>B</kbd>/<kbd>G</kbd>/<kbd>R</kbd>/<kbd>K</kbd>{' '}
-          set bonus, <kbd>Enter</kbd> submits.
+          Type or click. <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> tier (cards),{' '}
+          <kbd>W</kbd>/<kbd>B</kbd>/<kbd>G</kbd>/<kbd>R</kbd>/<kbd>K</kbd> bonus,{' '}
+          <kbd>Enter</kbd> submit, <kbd>Esc</kbd> cancel edit.
         </p>
       </header>
 
+      <nav className="tabs">
+        <button
+          type="button"
+          className={`tab ${mode === 'cards' ? 'active' : ''}`}
+          onClick={() => switchMode('cards')}
+        >
+          Cards <span className="tab-count">{data.cards.length}</span>
+        </button>
+        <button
+          type="button"
+          className={`tab ${mode === 'nobles' ? 'active' : ''}`}
+          onClick={() => switchMode('nobles')}
+        >
+          Nobles <span className="tab-count">{data.nobles.length}</span>
+        </button>
+      </nav>
+
       <section className="progress">
-        {TIERS.map((t) => (
-          <div key={t} className="progress-row">
-            <span className="progress-label">Tier {t}</span>
+        {mode === 'cards' ? (
+          TIERS.map((t) => (
+            <div key={t} className="progress-row">
+              <span className="progress-label">Tier {t}</span>
+              <div className="progress-bar">
+                <div
+                  className="progress-fill"
+                  style={{
+                    width: `${Math.min(100, (tierCounts[t] / TIER_TOTALS[t]) * 100)}%`,
+                  }}
+                />
+              </div>
+              <span className="progress-count">
+                {tierCounts[t]} / {TIER_TOTALS[t]}
+              </span>
+            </div>
+          ))
+        ) : (
+          <div className="progress-row">
+            <span className="progress-label">Nobles</span>
             <div className="progress-bar">
               <div
                 className="progress-fill"
                 style={{
-                  width: `${Math.min(100, (tierCounts[t] / TIER_TOTALS[t]) * 100)}%`,
+                  width: `${Math.min(100, (data.nobles.length / NOBLES_TOTAL) * 100)}%`,
                 }}
               />
             </div>
             <span className="progress-count">
-              {tierCounts[t]} / {TIER_TOTALS[t]}
+              {data.nobles.length} / {NOBLES_TOTAL}
             </span>
           </div>
-        ))}
+        )}
       </section>
 
-      <section className="form">
+      <section className={`form ${editingId !== null ? 'editing' : ''}`}>
         <div className="form-header">
           <h2>
-            Next card: <code>{nextId}</code>
+            {headingLabel}: <code>{headingId}</code>
           </h2>
+          {editingId !== null && (
+            <button type="button" className="link" onClick={cancelEdit}>
+              Cancel <kbd>Esc</kbd>
+            </button>
+          )}
         </div>
 
-        <div className="field">
-          <label>Tier</label>
-          <div className="buttons">
-            {TIERS.map((t) => (
-              <button
-                key={t}
-                type="button"
-                className={`pill ${tier === t ? 'active' : ''}`}
-                onClick={() => setTier(t)}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="field">
-          <label>Bonus</label>
-          <div className="buttons">
-            {COLORS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                className={`color-btn ${bonus === c ? 'active' : ''}`}
-                style={{
-                  background: COLOR_HEX[c],
-                  color: c === 'white' ? '#1f2937' : '#fff',
-                }}
-                onClick={() => setBonus(c)}
-                aria-label={`Bonus ${c}`}
-              >
-                {c.charAt(0).toUpperCase()}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="field">
-          <label htmlFor="prestige">Prestige</label>
-          <input
-            id="prestige"
-            type="number"
-            min={0}
-            max={5}
-            value={prestige}
-            onChange={(e) =>
-              setPrestige(Math.max(0, Number(e.target.value) || 0))
-            }
-            onFocus={(e) => e.target.select()}
-          />
-        </div>
-
-        <div className="field">
-          <label>Cost <span className="hint">(total: {totalCost})</span></label>
-          <div className="cost-row">
-            {COLORS.map((c) => (
-              <div key={c} className="cost-cell">
-                <div
-                  className="swatch"
-                  style={{ background: COLOR_HEX[c] }}
-                  title={c}
-                />
-                <input
-                  type="number"
-                  min={0}
-                  value={cost[c]}
-                  onChange={(e) =>
-                    setCost((prev) => ({
-                      ...prev,
-                      [c]: Math.max(0, Number(e.target.value) || 0),
-                    }))
-                  }
-                  onFocus={(e) => e.target.select()}
-                  aria-label={`${c} cost`}
-                />
+        {mode === 'cards' ? (
+          <>
+            <div className="field">
+              <label>Tier</label>
+              <div className="buttons">
+                {TIERS.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    className={`pill ${tier === t ? 'active' : ''}`}
+                    onClick={() => setTier(t)}
+                  >
+                    {t}
+                  </button>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
+            </div>
+
+            <div className="field">
+              <label>Bonus</label>
+              <div className="buttons">
+                {COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    className={`color-btn ${bonus === c ? 'active' : ''}`}
+                    style={{
+                      background: COLOR_HEX[c],
+                      color: c === 'white' ? '#1f2937' : '#fff',
+                    }}
+                    onClick={() => setBonus(c)}
+                    aria-label={`Bonus ${c}`}
+                  >
+                    {c.charAt(0).toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="field">
+              <label htmlFor="prestige">Prestige</label>
+              <input
+                id="prestige"
+                type="number"
+                min={0}
+                max={5}
+                value={prestige}
+                onChange={(e) =>
+                  setPrestige(Math.max(0, Number(e.target.value) || 0))
+                }
+                onFocus={(e) => e.target.select()}
+              />
+            </div>
+
+            <div className="field">
+              <label>
+                Cost <span className="hint">(total: {sumColors(cost)})</span>
+              </label>
+              {renderColorRow(cost, setCost, 'cost')}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="field">
+              <label htmlFor="noble-prestige">Prestige</label>
+              <input
+                id="noble-prestige"
+                type="number"
+                min={0}
+                max={5}
+                value={noblePrestige}
+                onChange={(e) =>
+                  setNoblePrestige(Math.max(0, Number(e.target.value) || 0))
+                }
+                onFocus={(e) => e.target.select()}
+              />
+            </div>
+            <div className="field">
+              <label>
+                Requirement{' '}
+                <span className="hint">
+                  (total: {sumColors(requirement)} · expect 8 or 9)
+                </span>
+              </label>
+              {renderColorRow(requirement, setRequirement, 'requirement')}
+            </div>
+          </>
+        )}
 
         <div className="actions">
           <button
@@ -249,14 +472,13 @@ export default function App() {
             className="primary"
             onClick={submit}
           >
-            Add card <kbd>Enter</kbd>
+            {editingId !== null ? 'Save changes' : 'Add'} <kbd>Enter</kbd>
           </button>
           <button
             type="button"
-            onClick={() => {
-              setPrestige(0);
-              setCost(emptyCost());
-            }}
+            onClick={() =>
+              mode === 'cards' ? resetCardForm() : resetNobleForm()
+            }
           >
             Reset numbers
           </button>
@@ -264,45 +486,105 @@ export default function App() {
       </section>
 
       <section className="list">
-        <h2>Entered ({cards.length})</h2>
-        {cards.length === 0 ? (
-          <p className="empty">No cards yet. Submit one to get started.</p>
+        <h2>
+          {mode === 'cards'
+            ? `Cards (${data.cards.length})`
+            : `Nobles (${data.nobles.length})`}
+        </h2>
+        {mode === 'cards' ? (
+          data.cards.length === 0 ? (
+            <p className="empty">No cards yet. Submit one to get started.</p>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Bonus</th>
+                  <th>Prestige</th>
+                  <th>Cost</th>
+                  <th aria-label="actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {[...data.cards].reverse().map((c) => (
+                  <tr key={c.id} className={editingId === c.id ? 'editing-row' : ''}>
+                    <td>
+                      <code>{c.id}</code>
+                    </td>
+                    <td>
+                      <span
+                        className="swatch inline"
+                        style={{ background: COLOR_HEX[c.bonus] }}
+                        title={c.bonus}
+                      />
+                    </td>
+                    <td>{c.prestige}</td>
+                    <td className="cost-summary">
+                      {COLORS.filter((col) => c.cost[col] > 0)
+                        .map((col) => `${c.cost[col]} ${col}`)
+                        .join(', ') || '—'}
+                    </td>
+                    <td className="row-actions">
+                      <button
+                        type="button"
+                        className="row-btn"
+                        onClick={() => startEditCard(c)}
+                        aria-label={`Edit ${c.id}`}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="remove"
+                        onClick={() => removeCard(c.id)}
+                        aria-label={`Remove ${c.id}`}
+                      >
+                        ×
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        ) : data.nobles.length === 0 ? (
+          <p className="empty">No nobles yet. Submit one to get started.</p>
         ) : (
           <table>
             <thead>
               <tr>
                 <th>ID</th>
-                <th>Bonus</th>
                 <th>Prestige</th>
-                <th>Cost</th>
+                <th>Requirement</th>
                 <th aria-label="actions" />
               </tr>
             </thead>
             <tbody>
-              {[...cards].reverse().map((c) => (
-                <tr key={c.id}>
+              {[...data.nobles].reverse().map((n) => (
+                <tr key={n.id} className={editingId === n.id ? 'editing-row' : ''}>
                   <td>
-                    <code>{c.id}</code>
+                    <code>{n.id}</code>
                   </td>
-                  <td>
-                    <span
-                      className="swatch inline"
-                      style={{ background: COLOR_HEX[c.bonus] }}
-                      title={c.bonus}
-                    />
-                  </td>
-                  <td>{c.prestige}</td>
+                  <td>{n.prestige}</td>
                   <td className="cost-summary">
-                    {COLORS.filter((col) => c.cost[col] > 0)
-                      .map((col) => `${c.cost[col]} ${col}`)
+                    {COLORS.filter((col) => n.requirement[col] > 0)
+                      .map((col) => `${n.requirement[col]} ${col}`)
                       .join(', ') || '—'}
                   </td>
-                  <td>
+                  <td className="row-actions">
+                    <button
+                      type="button"
+                      className="row-btn"
+                      onClick={() => startEditNoble(n)}
+                      aria-label={`Edit ${n.id}`}
+                    >
+                      Edit
+                    </button>
                     <button
                       type="button"
                       className="remove"
-                      onClick={() => remove(c.id)}
-                      aria-label={`Remove ${c.id}`}
+                      onClick={() => removeNoble(n.id)}
+                      aria-label={`Remove ${n.id}`}
                     >
                       ×
                     </button>
@@ -315,15 +597,33 @@ export default function App() {
       </section>
 
       <section className="footer-actions">
-        <button type="button" onClick={exportJson} disabled={cards.length === 0}>
-          Export JSON
-        </button>
+        <div className="export-group">
+          <button
+            type="button"
+            onClick={() => exportJson('cards')}
+            disabled={data.cards.length === 0}
+          >
+            Export cards
+          </button>
+          <button
+            type="button"
+            onClick={() => exportJson('nobles')}
+            disabled={data.nobles.length === 0}
+          >
+            Export nobles
+          </button>
+        </div>
         <button
           type="button"
           className="danger"
           onClick={() => {
-            if (window.confirm('Delete all entered cards? This cannot be undone.')) {
-              setCards([]);
+            if (
+              window.confirm(
+                'Delete all entered cards AND nobles? This cannot be undone.',
+              )
+            ) {
+              setData({ cards: [], nobles: [] });
+              cancelEdit();
             }
           }}
         >

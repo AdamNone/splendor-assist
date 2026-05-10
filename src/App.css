@@ -44,6 +44,46 @@ section {
   margin-bottom: 16px;
 }
 
+.tabs {
+  display: flex;
+  gap: 4px;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin-bottom: 14px;
+}
+.tab {
+  flex: 0 0 auto;
+  padding: 10px 18px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 100ms ease;
+}
+.tab:hover { background: #f9fafb; color: #1f2937; }
+.tab.active {
+  background: #1f2937;
+  border-color: #1f2937;
+  color: #fff;
+}
+.tab-count {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 999px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.tab.active .tab-count {
+  background: rgba(255, 255, 255, 0.18);
+}
+
 h2 {
   margin: 0 0 16px;
   font-size: 16px;
@@ -91,6 +131,34 @@ h2 code {
   align-items: baseline;
   justify-content: space-between;
   margin-bottom: 8px;
+}
+.form.editing {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.12);
+}
+button.link {
+  background: transparent;
+  border: 0;
+  color: #6b7280;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+button.link:hover {
+  background: #f3f4f6;
+  color: #1f2937;
+}
+button.link kbd {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 4px;
+  border: 1px solid #d1d5db;
+  border-radius: 3px;
+  font-size: 11px;
+  background: #fff;
+  font-family: ui-monospace, Menlo, monospace;
 }
 
 .field {
@@ -248,6 +316,34 @@ tbody tr:last-child td { border-bottom: 0; }
   font-variant-numeric: tabular-nums;
 }
 
+.row-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+  align-items: center;
+}
+.row-btn {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 12px;
+  color: #4b5563;
+  cursor: pointer;
+}
+.row-btn:hover {
+  background: #f9fafb;
+  border-color: #d1d5db;
+  color: #1f2937;
+}
+.editing-row {
+  background: #fef3c7;
+}
+.editing-row code {
+  background: #fde68a;
+}
 .remove {
   width: 24px;
   height: 24px;
@@ -266,9 +362,14 @@ tbody tr:last-child td { border-bottom: 0; }
 .footer-actions {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   background: transparent;
   border: 0;
   padding: 0;
+}
+.export-group {
+  display: flex;
+  gap: 8px;
 }
 .footer-actions button {
   height: 38px;
