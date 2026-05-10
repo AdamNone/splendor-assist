@@ -83,6 +83,88 @@ section {
 .tab.active .tab-count {
   background: rgba(255, 255, 255, 0.18);
 }
+.tab-warn {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.tab.active .tab-warn {
+  background: #fde68a;
+  color: #78350f;
+}
+
+.global-issues {
+  background: #fffbeb;
+  border-color: #fcd34d;
+}
+.form-issues {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+}
+.issues-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #92400e;
+  margin-bottom: 6px;
+}
+.global-issues ul,
+.form-issues ul {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+  color: #78350f;
+}
+.global-issues li,
+.form-issues li {
+  line-height: 1.5;
+}
+
+.list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.list-header h2 {
+  margin: 0;
+}
+.filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #6b7280;
+  cursor: pointer;
+  user-select: none;
+}
+.filter-toggle input {
+  margin: 0;
+  cursor: pointer;
+}
+
+.flagged-row {
+  background: #fffbeb;
+}
+.flagged-row.editing-row {
+  background: #fde68a;
+}
+.issues-row td {
+  padding: 6px 14px 10px;
+  border-bottom: 1px solid #f3f4f6;
+  background: #fffbeb;
+  font-size: 12px;
+  color: #92400e;
+  line-height: 1.5;
+}
 
 h2 {
   margin: 0 0 16px;

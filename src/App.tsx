@@ -58,6 +58,142 @@ const emptyCount = (): Record<Color, number> => ({
 const sumColors = (m: Record<Color, number>): number =>
   COLORS.reduce((s, c) => s + m[c], 0);
 
+// Heuristic ranges drawn from standard Splendor. Used to flag entries that
+// look unusual — never to block submission, since the user's physical deck
+// is the ultimate authority.
+type TierRange = {
+  totalMin: number;
+  totalMax: number;
+  singleMax: number;
+  prestigeMin: number;
+  prestigeMax: number;
+};
+
+const TIER_RANGES: Record<Tier, TierRange> = {
+  1: { totalMin: 3, totalMax: 7, singleMax: 4, prestigeMin: 0, prestigeMax: 1 },
+  2: { totalMin: 5, totalMax: 10, singleMax: 6, prestigeMin: 1, prestigeMax: 3 },
+  3: { totalMin: 9, totalMax: 16, singleMax: 7, prestigeMin: 3, prestigeMax: 5 },
+};
+
+const TIER_BONUS_TARGET: Record<Tier, number> = { 1: 8, 2: 6, 3: 4 };
+
+const validateCard = (c: DraftCard): string[] => {
+  const issues: string[] = [];
+  const total = sumColors(c.cost);
+
+  if (total === 0) {
+    issues.push('Cost is empty');
+    return issues;
+  }
+
+  if (c.cost[c.bonus] > 0) {
+    issues.push(
+      `Cost includes ${c.cost[c.bonus]} ${c.bonus} (own bonus color — unusual in standard Splendor)`,
+    );
+  }
+
+  const r = TIER_RANGES[c.tier];
+
+  if (total < r.totalMin || total > r.totalMax) {
+    issues.push(
+      `Total cost ${total} outside typical tier ${c.tier} range (${r.totalMin}–${r.totalMax})`,
+    );
+  }
+
+  for (const col of COLORS) {
+    if (c.cost[col] > r.singleMax) {
+      issues.push(
+        `${c.cost[col]} ${col} exceeds typical tier ${c.tier} single-color max (${r.singleMax})`,
+      );
+    }
+  }
+
+  if (c.prestige < r.prestigeMin || c.prestige > r.prestigeMax) {
+    issues.push(
+      `Prestige ${c.prestige} outside typical tier ${c.tier} range (${r.prestigeMin}–${r.prestigeMax})`,
+    );
+  }
+
+  return issues;
+};
+
+const validateNoble = (n: DraftNoble): string[] => {
+  const issues: string[] = [];
+  const total = sumColors(n.requirement);
+
+  if (total === 0) {
+    issues.push('Requirement is empty');
+    return issues;
+  }
+
+  if (total !== 8 && total !== 9) {
+    issues.push(
+      `Total requirement ${total} unusual (expected 8 for 4+4 nobles, 9 for 3+3+3 nobles)`,
+    );
+  }
+
+  for (const col of COLORS) {
+    const v = n.requirement[col];
+    if (v !== 0 && v !== 3 && v !== 4) {
+      issues.push(
+        `${v} ${col} unusual (each requirement value should be 0, 3, or 4)`,
+      );
+    }
+  }
+
+  const usedColors = COLORS.filter((c) => n.requirement[c] > 0).length;
+  const fourCount = COLORS.filter((c) => n.requirement[c] === 4).length;
+  const threeCount = COLORS.filter((c) => n.requirement[c] === 3).length;
+
+  if (total === 8 && (usedColors !== 2 || fourCount !== 2)) {
+    issues.push('A 4+4 noble should use exactly two colors at 4 each');
+  }
+  if (total === 9 && (usedColors !== 3 || threeCount !== 3)) {
+    issues.push('A 3+3+3 noble should use exactly three colors at 3 each');
+  }
+
+  if (n.prestige !== 3) {
+    issues.push(`Prestige ${n.prestige} differs from the standard 3`);
+  }
+
+  return issues;
+};
+
+const validateGlobal = (data: DraftData): string[] => {
+  const issues: string[] = [];
+
+  for (const t of TIERS) {
+    const inTier = data.cards.filter((c) => c.tier === t);
+    if (inTier.length > TIER_TOTALS[t]) {
+      issues.push(
+        `Tier ${t}: ${inTier.length} cards (more than the standard ${TIER_TOTALS[t]})`,
+      );
+    }
+    // Only check bonus distribution once a tier is fully populated; partial
+    // entries trip false positives constantly.
+    if (inTier.length === TIER_TOTALS[t]) {
+      const counts = emptyCount();
+      for (const c of inTier) counts[c.bonus] += 1;
+      const exp = TIER_BONUS_TARGET[t];
+      for (const col of COLORS) {
+        if (counts[col] !== exp) {
+          issues.push(
+            `Tier ${t}: ${counts[col]} ${col}-bonus cards (expected ${exp})`,
+          );
+        }
+      }
+    }
+  }
+
+  if (data.nobles.length > NOBLES_TOTAL) {
+    issues.push(
+      `${data.nobles.length} nobles entered (more than the standard ${NOBLES_TOTAL})`,
+    );
+  }
+
+  return issues;
+};
+
 const idTail = (id: string): number => {
   const parts = id.split('-');
   const last = parts[parts.length - 1];
@@ -95,6 +231,7 @@ export default function App() {
   const [data, setData] = useState<DraftData>(loadData);
   const [mode, setMode] = useState<Mode>('cards');
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [showOnlyFlagged, setShowOnlyFlagged] = useState<boolean>(false);
 
   // Card form state
   const [tier, setTier] = useState<Tier>(1);
@@ -276,6 +413,38 @@ export default function App() {
   const headingId = editingId !== null ? editingId : mode === 'cards' ? nextCardId : nextNobleId;
   const headingLabel = editingId !== null ? 'Editing' : 'Next';
 
+  // Validation — recomputed every render. Cheap; data is small.
+  const cardIssues: Record<string, string[]> = {};
+  for (const c of data.cards) cardIssues[c.id] = validateCard(c);
+  const nobleIssues: Record<string, string[]> = {};
+  for (const n of data.nobles) nobleIssues[n.id] = validateNoble(n);
+  const globalIssues = validateGlobal(data);
+  const cardsFlagged = Object.values(cardIssues).filter((arr) => arr.length > 0).length;
+  const noblesFlagged = Object.values(nobleIssues).filter((arr) => arr.length > 0).length;
+
+  // Live form draft validation — suppressed when nothing has been entered yet.
+  const draftCard: DraftCard = {
+    id: editingId ?? 'draft',
+    tier,
+    bonus,
+    prestige,
+    cost,
+  };
+  const draftNoble: DraftNoble = {
+    id: editingId ?? 'draft',
+    prestige: noblePrestige,
+    requirement,
+  };
+  const formStarted =
+    mode === 'cards'
+      ? sumColors(cost) > 0 || prestige > 0
+      : sumColors(requirement) > 0 || noblePrestige !== 3;
+  const draftIssues = !formStarted
+    ? []
+    : mode === 'cards'
+      ? validateCard(draftCard)
+      : validateNoble(draftNoble);
+
   const renderColorRow = (
     value: Record<Color, number>,
     onChange: (next: Record<Color, number>) => void,
@@ -318,6 +487,11 @@ export default function App() {
           onClick={() => switchMode('cards')}
         >
           Cards <span className="tab-count">{data.cards.length}</span>
+          {cardsFlagged > 0 && (
+            <span className="tab-warn" aria-label={`${cardsFlagged} flagged`}>
+              ⚠ {cardsFlagged}
+            </span>
+          )}
         </button>
         <button
           type="button"
@@ -325,8 +499,24 @@ export default function App() {
           onClick={() => switchMode('nobles')}
         >
           Nobles <span className="tab-count">{data.nobles.length}</span>
+          {noblesFlagged > 0 && (
+            <span className="tab-warn" aria-label={`${noblesFlagged} flagged`}>
+              ⚠ {noblesFlagged}
+            </span>
+          )}
         </button>
       </nav>
+
+      {globalIssues.length > 0 && (
+        <section className="global-issues">
+          <div className="issues-title">⚠ Global checks</div>
+          <ul>
+            {globalIssues.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="progress">
         {mode === 'cards' ? (
@@ -483,116 +673,206 @@ export default function App() {
             Reset numbers
           </button>
         </div>
+
+        {draftIssues.length > 0 && (
+          <div className="form-issues">
+            <div className="issues-title">⚠ Heuristic checks</div>
+            <ul>
+              {draftIssues.map((s, i) => (
+                <li key={i}>{s}</li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
 
       <section className="list">
-        <h2>
-          {mode === 'cards'
-            ? `Cards (${data.cards.length})`
-            : `Nobles (${data.nobles.length})`}
-        </h2>
+        <div className="list-header">
+          <h2>
+            {mode === 'cards'
+              ? `Cards (${data.cards.length})`
+              : `Nobles (${data.nobles.length})`}
+          </h2>
+          {((mode === 'cards' && cardsFlagged > 0) ||
+            (mode === 'nobles' && noblesFlagged > 0)) && (
+            <label className="filter-toggle">
+              <input
+                type="checkbox"
+                checked={showOnlyFlagged}
+                onChange={(e) => setShowOnlyFlagged(e.target.checked)}
+              />
+              Show only flagged
+            </label>
+          )}
+        </div>
         {mode === 'cards' ? (
           data.cards.length === 0 ? (
             <p className="empty">No cards yet. Submit one to get started.</p>
           ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Bonus</th>
-                  <th>Prestige</th>
-                  <th>Cost</th>
-                  <th aria-label="actions" />
-                </tr>
-              </thead>
-              <tbody>
-                {[...data.cards].reverse().map((c) => (
-                  <tr key={c.id} className={editingId === c.id ? 'editing-row' : ''}>
-                    <td>
-                      <code>{c.id}</code>
-                    </td>
-                    <td>
-                      <span
-                        className="swatch inline"
-                        style={{ background: COLOR_HEX[c.bonus] }}
-                        title={c.bonus}
-                      />
-                    </td>
-                    <td>{c.prestige}</td>
-                    <td className="cost-summary">
-                      {COLORS.filter((col) => c.cost[col] > 0)
-                        .map((col) => `${c.cost[col]} ${col}`)
-                        .join(', ') || '—'}
-                    </td>
-                    <td className="row-actions">
-                      <button
-                        type="button"
-                        className="row-btn"
-                        onClick={() => startEditCard(c)}
-                        aria-label={`Edit ${c.id}`}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="remove"
-                        onClick={() => removeCard(c.id)}
-                        aria-label={`Remove ${c.id}`}
-                      >
-                        ×
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            (() => {
+              const visible = [...data.cards]
+                .reverse()
+                .filter((c) =>
+                  showOnlyFlagged ? (cardIssues[c.id]?.length ?? 0) > 0 : true,
+                );
+              if (visible.length === 0) {
+                return <p className="empty">No flagged cards. Toggle the filter off to see all.</p>;
+              }
+              return (
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Bonus</th>
+                      <th>Prestige</th>
+                      <th>Cost</th>
+                      <th aria-label="actions" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visible.flatMap((c) => {
+                      const issues = cardIssues[c.id] ?? [];
+                      const rowClasses = [
+                        editingId === c.id ? 'editing-row' : '',
+                        issues.length > 0 ? 'flagged-row' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ');
+                      const rows = [
+                        <tr key={c.id} className={rowClasses}>
+                          <td>
+                            <code>{c.id}</code>
+                          </td>
+                          <td>
+                            <span
+                              className="swatch inline"
+                              style={{ background: COLOR_HEX[c.bonus] }}
+                              title={c.bonus}
+                            />
+                          </td>
+                          <td>{c.prestige}</td>
+                          <td className="cost-summary">
+                            {COLORS.filter((col) => c.cost[col] > 0)
+                              .map((col) => `${c.cost[col]} ${col}`)
+                              .join(', ') || '—'}
+                          </td>
+                          <td className="row-actions">
+                            <button
+                              type="button"
+                              className="row-btn"
+                              onClick={() => startEditCard(c)}
+                              aria-label={`Edit ${c.id}`}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="remove"
+                              onClick={() => removeCard(c.id)}
+                              aria-label={`Remove ${c.id}`}
+                            >
+                              ×
+                            </button>
+                          </td>
+                        </tr>,
+                      ];
+                      if (issues.length > 0) {
+                        rows.push(
+                          <tr key={`${c.id}-issues`} className="issues-row">
+                            <td colSpan={5}>
+                              {issues.map((s, i) => (
+                                <div key={i}>⚠ {s}</div>
+                              ))}
+                            </td>
+                          </tr>,
+                        );
+                      }
+                      return rows;
+                    })}
+                  </tbody>
+                </table>
+              );
+            })()
           )
         ) : data.nobles.length === 0 ? (
           <p className="empty">No nobles yet. Submit one to get started.</p>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Prestige</th>
-                <th>Requirement</th>
-                <th aria-label="actions" />
-              </tr>
-            </thead>
-            <tbody>
-              {[...data.nobles].reverse().map((n) => (
-                <tr key={n.id} className={editingId === n.id ? 'editing-row' : ''}>
-                  <td>
-                    <code>{n.id}</code>
-                  </td>
-                  <td>{n.prestige}</td>
-                  <td className="cost-summary">
-                    {COLORS.filter((col) => n.requirement[col] > 0)
-                      .map((col) => `${n.requirement[col]} ${col}`)
-                      .join(', ') || '—'}
-                  </td>
-                  <td className="row-actions">
-                    <button
-                      type="button"
-                      className="row-btn"
-                      onClick={() => startEditNoble(n)}
-                      aria-label={`Edit ${n.id}`}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      className="remove"
-                      onClick={() => removeNoble(n.id)}
-                      aria-label={`Remove ${n.id}`}
-                    >
-                      ×
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          (() => {
+            const visible = [...data.nobles]
+              .reverse()
+              .filter((n) =>
+                showOnlyFlagged ? (nobleIssues[n.id]?.length ?? 0) > 0 : true,
+              );
+            if (visible.length === 0) {
+              return <p className="empty">No flagged nobles. Toggle the filter off to see all.</p>;
+            }
+            return (
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Prestige</th>
+                    <th>Requirement</th>
+                    <th aria-label="actions" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.flatMap((n) => {
+                    const issues = nobleIssues[n.id] ?? [];
+                    const rowClasses = [
+                      editingId === n.id ? 'editing-row' : '',
+                      issues.length > 0 ? 'flagged-row' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ');
+                    const rows = [
+                      <tr key={n.id} className={rowClasses}>
+                        <td>
+                          <code>{n.id}</code>
+                        </td>
+                        <td>{n.prestige}</td>
+                        <td className="cost-summary">
+                          {COLORS.filter((col) => n.requirement[col] > 0)
+                            .map((col) => `${n.requirement[col]} ${col}`)
+                            .join(', ') || '—'}
+                        </td>
+                        <td className="row-actions">
+                          <button
+                            type="button"
+                            className="row-btn"
+                            onClick={() => startEditNoble(n)}
+                            aria-label={`Edit ${n.id}`}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="remove"
+                            onClick={() => removeNoble(n.id)}
+                            aria-label={`Remove ${n.id}`}
+                          >
+                            ×
+                          </button>
+                        </td>
+                      </tr>,
+                    ];
+                    if (issues.length > 0) {
+                      rows.push(
+                        <tr key={`${n.id}-issues`} className="issues-row">
+                          <td colSpan={4}>
+                            {issues.map((s, i) => (
+                              <div key={i}>⚠ {s}</div>
+                            ))}
+                          </td>
+                        </tr>,
+                      );
+                    }
+                    return rows;
+                  })}
+                </tbody>
+              </table>
+            );
+          })()
         )}
       </section>
 
