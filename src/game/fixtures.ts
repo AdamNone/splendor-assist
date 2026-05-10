@@ -78,6 +78,7 @@ type StateOverrides = {
   nobles?: Noble[];
   players?: PlayerState[];
   currentPlayer?: 0 | 1 | 2 | 3;
+  startingPlayer?: 0 | 1 | 2 | 3;
 };
 
 export const makeState = (overrides: StateOverrides = {}): GameState => {
@@ -95,9 +96,8 @@ export const makeState = (overrides: StateOverrides = {}): GameState => {
     nobles: overrides.nobles ?? [],
     players: overrides.players ?? Array.from({ length: numPlayers }, () => player()),
     currentPlayer: overrides.currentPlayer ?? 0,
+    startingPlayer: overrides.startingPlayer ?? 0,
     pendingReveals: [],
-    finalRoundTriggered: false,
-    finalRoundStarter: null,
     turnNumber: 0,
   };
 };

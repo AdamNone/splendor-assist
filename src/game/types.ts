@@ -58,10 +58,12 @@ export type GameState = {
   gemSupply: GemPool;
   nobles: Noble[];
   players: PlayerState[];
+  // Whose turn it is right now.
   currentPlayer: PlayerIndex;
+  // The player who took the first turn of the game. Used to detect when a
+  // round has just completed (currentPlayer wraps back to startingPlayer).
+  startingPlayer: PlayerIndex;
   pendingReveals: PendingReveal[];
-  finalRoundTriggered: boolean;
-  finalRoundStarter: PlayerIndex | null;
   turnNumber: number;
 };
 

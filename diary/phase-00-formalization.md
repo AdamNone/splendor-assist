@@ -128,6 +128,36 @@ When a face-up card leaves the row (bought or reserved), the slot becomes empty 
 
 **Why:** matches the user's actual use case (real games with friends), and forcing the abstraction now means our minimax/MCTS code is multi-player from the start — which is harder than 2P, but only marginally if we plan for it.
 
+### D4. Cache `bonuses` and `prestige` on `PlayerState`
+
+Both fields are derivable from `purchased` + `nobles`, but we store them and require the engine to maintain them inside `apply`.
+
+**Why:** search will read these on every leaf. Recomputing means iterating the player's purchased list per read; caching makes it O(1). The cost is one new "two sources of truth" surface, which is bounded — only `apply` writes to them.
+
+### D5. Track `reservedFrom` on each reserved card
+
+`PlayerState.reserved` is `ReservedCard[]`, where each entry carries `{ card, reservedFrom: 'faceUp' | 'deck' }`.
+
+**Why:** when a card is reserved face-up, opponents watched it happen — its identity is public. When reserved blind from a deck top, only the holder knows. Without `reservedFrom` we cannot project the right information set in Phase 3. Note that the *count* of an opponent's reserved cards is always public (cards are visible face-down on the table), so only identities are conditionally hidden.
+
+### D6. Game-end is a round-completion check
+
+Drop the `finalRoundTriggered` / `finalRoundStarter` flags. Instead store `startingPlayer: PlayerIndex` (the player who took turn 1). After every action, advance `currentPlayer`; whenever it wraps back to `startingPlayer`, a round just completed and the engine checks: does any player have prestige ≥ 15? If so, terminal.
+
+**Why:** matches the official rule precisely — Splendor ends when *each player has had an equal number of turns* and at least one player has reached 15. A consequence: if the player who plays *last* in a round is the first to reach 15, the game ends as soon as they finish their turn (everyone else already played). The earlier two-flag model encoded this correctly but redundantly; one field is enough.
+
+### D7. Auto-claim the first qualifying noble
+
+If a player meets the bonus requirements of multiple nobles in the same turn, the engine awards the *first* qualifying noble in `state.nobles` order. (Splendor allows at most one noble per turn anyway.)
+
+**Why:** keeps the engine deterministic and the action space small. Strategically, this almost never matters in practice. If we later want the agent to *choose* which noble it gets when racing, we can promote it to a player decision.
+
+### D8. Gem-return discard policy
+
+When a take-3 / take-2 / reserve action would put the player over the 10-gem cap, the action carries an explicit `discard: GemPool`. `legalActions` only enumerates discards whose total equals the *exact* excess — never more. (Discarding more is technically legal but always strictly worse, so omitting those variants doesn't lose any rational play.)
+
+**Why:** keeps the branching factor manageable. A "you must discard exactly N" enumeration is a multinomial; allowing N+1 or more would multiply branches further with zero strategic benefit.
+
 ## Experiments / observations
 
 ### First implementation pass (2026-05-10)
@@ -145,10 +175,8 @@ Wrote `src/game/types.ts`, `src/game/gems.ts`, `src/game/legalActions.ts`, `src/
 
 ## Open questions
 
-- How will we handle the gem-return sub-decision when a player exceeds 10? As a separate action, or folded into the parent action's parameters?
-- Do we expose noble-tiebreaker logic (when multiple nobles are claimable simultaneously, the player chooses)? Or auto-claim the first match?
-- Final game-end check: standard rules end the *round* when someone hits 15. Do we model "round end" or just "turn ends after everyone got equal turns"?
-- Should `project(state, player)` also hide the *count* of opponents' reserved cards? In standard play that count is visible (cards held face down on the table), so we'll keep counts public and only hide identities.
+- **Degenerate states with no legal action.** In rare positions (decks empty, all face-up cleared, supply too low for any take, no affordable card to buy, reserve full) a player could in principle have no legal move. Standard Splendor doesn't address this — what's the engine's right behavior? Probably: emit a "pass" action and continue. Defer until we see one in practice.
+- **Strategic noble choice.** D7 auto-picks the first qualifying noble. If two players are racing for one specific noble, an agent should arguably *choose* which to take. Revisit when the evaluator (Phase 1) is good enough that this difference matters.
 
 ## Phase 0 status
 
@@ -164,6 +192,15 @@ Wrote `src/game/types.ts`, `src/game/gems.ts`, `src/game/legalActions.ts`, `src/
 - `applyReveal` + `terminal`/`winner` — the chance steps and `U`
 - Real card + noble data
 - `project(state, player)` — information-set derivation
+
+### Refinements after first review (2026-05-10)
+
+After walking through the code together, three more decisions landed (see D4–D8 above for the long form):
+
+- Cache `bonuses` and `prestige` on `PlayerState` (engine-maintained).
+- Track `reservedFrom` on each reserved card so we can project the right information set later.
+- Replace the two end-of-game flags with a single `startingPlayer` and a per-round terminal check — matches the official "everyone gets equal turns" rule.
+- Resolved the three open questions on gem-return, noble tiebreakers, and end-game timing.
 
 
 ## Open questions
