@@ -1226,14 +1226,13 @@ export default function AssistantApp() {
     if (simRunning) {
       return;
     }
-    // Not the main player's turn — clear any stale recommendation.
-    if (stateForEffect.currentPlayer !== stateForEffect.mainPlayer) {
-      setRecommendation(null);
-      return;
-    }
     // Validation must pass before we burn cycles on a doomed run.
     const issues = validate();
     if (issues.length > 0) return;
+    // Auto-recommend fires for every turn now (not just the main player's),
+    // so the per-player win pills stay populated regardless of whose turn
+    // it is. The recommendation panel uses the same MCTS output and shows
+    // a "Suggested for {name}" label when it's an opponent's turn.
     debounceRef.current = setTimeout(() => {
       void runMcts(300);
     }, 900);
