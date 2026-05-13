@@ -1030,6 +1030,7 @@ export default function AssistantApp() {
             isCurrent={idx === s.currentPlayer}
             player={p}
             unavailableIds={usedCardIds}
+            winRate={recommendation?.winRates[idx]}
             onName={(name) => setPlayerName(idx, name)}
             onReservedAdd={(card) =>
               setS((prev) => {
@@ -1149,33 +1150,6 @@ export default function AssistantApp() {
                     ))}
                   </div>
                 )}
-
-                <div className="winrates">
-                  <div className="winrates-title">
-                    Estimated win chance (Monte-Carlo, not calibrated)
-                  </div>
-                  {recommendation.winRates.map((rate, i) => {
-                    const pct = Math.max(0, Math.min(1, rate)) * 100;
-                    const isMe = i === recommendation.currentPlayer;
-                    return (
-                      <div
-                        key={i}
-                        className={`winrate-row ${isMe ? 'me' : ''}`}
-                      >
-                        <span className="winrate-label">
-                          {playerLabel(i)}{isMe ? ' (to move)' : ''}
-                        </span>
-                        <div className="winrate-bar">
-                          <div
-                            className="winrate-fill"
-                            style={{ width: `${pct.toFixed(1)}%` }}
-                          />
-                        </div>
-                        <span className="winrate-value">{pct.toFixed(0)}%</span>
-                      </div>
-                    );
-                  })}
-                </div>
 
                 {recommendation.alternatives.length > 0 && (
                   <div className="alternatives">
@@ -1498,6 +1472,7 @@ function PlayerPanel({
   isCurrent,
   player,
   unavailableIds,
+  winRate,
   onName,
   onReservedAdd,
   onReservedRemove,
@@ -1507,6 +1482,7 @@ function PlayerPanel({
   isCurrent: boolean;
   player: PlayerForm;
   unavailableIds: Set<string>;
+  winRate: number | undefined;
   onName: (name: string) => void;
   onReservedAdd: (card: Card) => void;
   onReservedRemove: (i: number) => void;
@@ -1527,6 +1503,14 @@ function PlayerPanel({
           aria-label={`Name for player ${idx}`}
         />
         {isCurrent && <span className="badge">to move</span>}
+        {winRate !== undefined && (
+          <span
+            className="winchance-pill"
+            title="MCTS win-rate estimate from the current recommendation (not calibrated)"
+          >
+            {(Math.max(0, Math.min(1, winRate)) * 100).toFixed(0)}%
+          </span>
+        )}
       </div>
       <div className="player-row">
         <span className="player-label">Bonuses</span>

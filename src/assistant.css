@@ -810,6 +810,18 @@ input[type='number']:focus {
   color: #fff;
   border-radius: 999px;
 }
+.winchance-pill {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  background: #d1fae5;
+  color: #065f46;
+  border: 1px solid #6ee7b7;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+}
 .player-row {
   display: grid;
   grid-template-columns: 60px 1fr;
