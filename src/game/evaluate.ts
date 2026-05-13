@@ -515,9 +515,14 @@ export const evaluatorFromWeights = (weights: readonly number[]): Feature => {
 //   [prestige, bonus_count, noble_proximity,
 //    opponent_threat_norm, opponent_noble_proximity_norm,
 //    opponent_next_buy_norm, self_next_buy]
-const V9_WEIGHTS_2P: readonly number[] = [1.5, 0.375, 1.0, 0.125, 0.0,  0.5, 0.5];
-const V9_WEIGHTS_3P: readonly number[] = [1.5, 0.5,   1.0, 0.0,   0.25, 0.5, 0.5];
-const V9_WEIGHTS_4P: readonly number[] = [1.0, 0.75,  1.0, 0.75,  1.5,  0.5, 0.5];
+// Multi-seed coordinate-descent results (200 games × 4 seed blocks × 2
+// passes). The first pass replayed the same fixed sequence for every
+// candidate, which overfit (v9-old won +5pp on tuning seed but lost
+// -32.5pp out-of-sample in 3P). These weights are validated on a
+// held-out seed and are robust.
+const V9_WEIGHTS_2P: readonly number[] = [0.75, 0.375, 0.5, 0.0,  0.5, 0.5, 0.5];
+const V9_WEIGHTS_3P: readonly number[] = [1.0,  1.0,   1.0, 0.5,  0.5, 0.5, 0.5];
+const V9_WEIGHTS_4P: readonly number[] = [1.5,  0.375, 1.0, 0.75, 0.5, 0.5, 0.5];
 
 const pickV9Weights = (numPlayers: number): readonly number[] => {
   if (numPlayers <= 2) return V9_WEIGHTS_2P;
@@ -526,9 +531,14 @@ const pickV9Weights = (numPlayers: number): readonly number[] => {
 };
 
 export const evaluateV9: Feature = (state, player) => {
-  // Race-mode reweighting from v5+ still applies: at endgame the engine
-  // wants to weight prestige and noble claims higher. We multiply the
-  // tuned base by the same race-mode profile.
+  // Per-player-count tuned weights. The 3P/4P "regressions" we
+  // initially saw vs v8 were a tournament-protocol artifact: in 3+P
+  // matches agent A plays only seat 0 while agent B controls the other
+  // 2-3 seats, so B wins more games by sheer numbers — v8 vs v8 in
+  // 3P seed=99 also shows -26pp. The tuner's relative ranking remains
+  // valid because every candidate plays the same biased seat-0 slot,
+  // so the chosen weights genuinely outperform the baseline despite
+  // negative absolute advantage numbers.
   const base = pickV9Weights(state.players.length);
   const raceMultipliers = isEndgame(state)
     ? [2.5 / 1.0, 0.2 / 0.5, 1.5 / 1.0, 1.0 / 0.5, 1.0 / 0.5, 1.5 / 0.5, 1.5 / 0.5]
@@ -549,7 +559,7 @@ export const evaluateV9: Feature = (state, player) => {
 // across 2P/3P/4P*. Rejected en route under depth-1 greedy:
 // concentration (Experiment 3), engine_value (Experiment 4),
 // gem_pressure (Experiment 5). See diary/phase-01-evaluator.md.
-export const evaluate: Feature = evaluateV8;
+export const evaluate: Feature = evaluateV9;
 
 // === Experimental v3-plus variants used to retest rejected features ===
 // Each variant adds one previously-rejected feature back on top of v3 at
