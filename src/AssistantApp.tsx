@@ -53,9 +53,13 @@ const GEM_SUPPLY_DEFAULT: Record<2 | 3 | 4, GemPool> = {
 
 type ReservedFormCard = {
   card: Card;
-  // Only face-up-sourced reserves are tracked in the form; blind reserves
-  // from a deck are anonymous in real play, so we drop them on
-  // form/state round-trips and only retain the +1 gold the action gave.
+  /**
+   * True if this card was reserved blindly from a deck top (opponent reserve
+   * we couldn't see). The engine has assigned a best-guess identity to keep
+   * MCTS running, but in real play the user doesn't know which card it is —
+   * so the UI renders it face-down with only the tier visible.
+   */
+  blind?: boolean;
 };
 
 type PlayerForm = {
@@ -131,7 +135,8 @@ const initialState = (): AssistantState => {
         reserved: Array.isArray(p.reserved)
           ? p.reserved.flatMap((r) => {
               const card = cardsById.get(r.card?.id);
-              return card === undefined ? [] : [{ card }];
+              if (card === undefined) return [];
+              return [{ card, ...(r.blind === true ? { blind: true } : {}) }];
             })
           : [],
       }));
@@ -226,11 +231,13 @@ const fromGameState = (gs: GameState, prev: AssistantState): AssistantState => (
     bonuses: { ...p.bonuses },
     gems: { ...p.gems },
     prestige: p.prestige,
-    // Only face-up-source reserves persist into the form. Blind reserves
-    // have unknown identities in real play and we already discard them.
-    reserved: p.reserved
-      .filter((r) => r.reservedFrom === 'faceUp')
-      .map((r) => ({ card: r.card })),
+    // Preserve every reserve, marking deck-source ones as blind so the UI
+    // renders them face-down. The engine's best-guess identity comes along
+    // for MCTS purposes but is not exposed visually.
+    reserved: p.reserved.map((r) => ({
+      card: r.card,
+      ...(r.reservedFrom === 'deck' ? { blind: true } : {}),
+    })),
   })),
 });
 
@@ -258,7 +265,7 @@ const buildGameState = (s: AssistantState): GameState => {
     // comment); rebuild them with the right `reservedFrom` tag here.
     reserved: p.reserved.map((r) => ({
       card: r.card,
-      reservedFrom: 'faceUp' as const,
+      reservedFrom: (r.blind === true ? 'deck' : 'faceUp') as 'deck' | 'faceUp',
     })),
     nobles: [],
     bonuses: { ...p.bonuses },
@@ -1230,6 +1237,18 @@ const describeNobleRequirement = (n: Noble): string =>
 // Card visuals — used both as face-up slots and in the picker grid.
 // =============================================================================
 
+// Face-down placeholder for a card whose identity the user doesn't know
+// (typically an opponent's blind reserve from the deck top). Same outline
+// as CardArt so it fits next to face-up reserves without re-flow.
+function BlindCardArt({ tier, size = 'normal' }: { tier: Tier; size?: 'normal' | 'small' }) {
+  return (
+    <div className={`card-art blind-art ${size === 'small' ? 'small' : ''} dark`}>
+      <div className="blind-tier">T{tier}</div>
+      <div className="blind-mark">?</div>
+    </div>
+  );
+}
+
 function NobleArt({ noble, size = 'normal' }: { noble: Noble; size?: 'normal' | 'small' }) {
   return (
     <div className={`card-art noble-art ${size === 'small' ? 'small' : ''} light`}>
@@ -1524,12 +1543,16 @@ function PlayerPanel({
           <div className="reserved-list">
             {player.reserved.map((r, i) => (
               <div key={i} className="reserved-card">
-                <CardArt card={r.card} size="small" />
+                {r.blind === true ? (
+                  <BlindCardArt tier={r.card.tier} size="small" />
+                ) : (
+                  <CardArt card={r.card} size="small" />
+                )}
                 <button
                   type="button"
                   className="reserved-remove"
                   onClick={() => onReservedRemove(i)}
-                  aria-label={`Remove ${r.card.id} from reserved`}
+                  aria-label={`Remove ${r.blind === true ? `blind T${r.card.tier}` : r.card.id} from reserved`}
                   title="Remove"
                 >
                   ×
@@ -1802,6 +1825,7 @@ function OpponentTurnPanel({
       card: Card;
       index: number;
       payment: GemPool;
+      blind: boolean;
     };
     const buyable: Array<FaceUpBuy | ReserveBuy> = [];
     for (const tier of TIERS) {
@@ -1819,7 +1843,13 @@ function OpponentTurnPanel({
       if (r === undefined) continue;
       const payment = computePayment(r.card, opp);
       if (payment !== null) {
-        buyable.push({ kind: 'reserve', card: r.card, index, payment });
+        buyable.push({
+          kind: 'reserve',
+          card: r.card,
+          index,
+          payment,
+          blind: r.reservedFrom === 'deck',
+        });
       }
     }
     if (buyable.length === 0) {
@@ -1861,11 +1891,21 @@ function OpponentTurnPanel({
                         },
                   )
                 }
-                aria-label={`buy ${b.card.id}${b.kind === 'reserve' ? ' from reserve' : ''}`}
+                aria-label={
+                  b.kind === 'reserve' && b.blind
+                    ? `buy blind T${b.card.tier} reserve`
+                    : `buy ${b.card.id}${b.kind === 'reserve' ? ' from reserve' : ''}`
+                }
               >
-                <CardArt card={b.card} size="small" />
+                {b.kind === 'reserve' && b.blind ? (
+                  <BlindCardArt tier={b.card.tier} size="small" />
+                ) : (
+                  <CardArt card={b.card} size="small" />
+                )}
                 {b.kind === 'reserve' && (
-                  <span className="reserve-badge">from reserve</span>
+                  <span className="reserve-badge">
+                    {b.blind ? 'blind reserve' : 'from reserve'}
+                  </span>
                 )}
               </button>
             );
