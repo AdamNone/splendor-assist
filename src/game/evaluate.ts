@@ -504,6 +504,43 @@ export const evaluatorFromWeights = (weights: readonly number[]): Feature => {
   return (state, player) => evaluateWith(features, state, player);
 };
 
+// === V9: per-player-count tuned weights ===
+// Found by coordinate-descent (src/cli/tune.ts) — 200 games/eval, 2 passes,
+// seed=1. The clear pattern: 2P/3P prefer offense (lower opponent paranoia
+// since you can outpace one or two opponents on your own line). 4P needs
+// more defense (3 opponents = real noble-claim races) and more bonuses
+// (longer games where engine strength compounds).
+//
+// Vector order matches TUNABLE_FEATURES:
+//   [prestige, bonus_count, noble_proximity,
+//    opponent_threat_norm, opponent_noble_proximity_norm,
+//    opponent_next_buy_norm, self_next_buy]
+const V9_WEIGHTS_2P: readonly number[] = [1.5, 0.375, 1.0, 0.125, 0.0,  0.5, 0.5];
+const V9_WEIGHTS_3P: readonly number[] = [1.5, 0.5,   1.0, 0.0,   0.25, 0.5, 0.5];
+const V9_WEIGHTS_4P: readonly number[] = [1.0, 0.75,  1.0, 0.75,  1.5,  0.5, 0.5];
+
+const pickV9Weights = (numPlayers: number): readonly number[] => {
+  if (numPlayers <= 2) return V9_WEIGHTS_2P;
+  if (numPlayers === 3) return V9_WEIGHTS_3P;
+  return V9_WEIGHTS_4P;
+};
+
+export const evaluateV9: Feature = (state, player) => {
+  // Race-mode reweighting from v5+ still applies: at endgame the engine
+  // wants to weight prestige and noble claims higher. We multiply the
+  // tuned base by the same race-mode profile.
+  const base = pickV9Weights(state.players.length);
+  const raceMultipliers = isEndgame(state)
+    ? [2.5 / 1.0, 0.2 / 0.5, 1.5 / 1.0, 1.0 / 0.5, 1.0 / 0.5, 1.5 / 0.5, 1.5 / 0.5]
+    : [1, 1, 1, 1, 1, 1, 1];
+  const features: WeightedFeature[] = TUNABLE_FEATURES.map((f, i) => ({
+    name: f.name,
+    weight: (base[i] ?? 0) * (raceMultipliers[i] ?? 1),
+    fn: f.fn,
+  }));
+  return evaluateWith(features, state, player);
+};
+
 // `evaluate` always points at the current best evaluator. v7 (v6 with
 // opponent features normalized by opponent count) currently leads. v6
 // regressed in 4P (−5pp vs v3) because the summed opponent_*  features

@@ -31,17 +31,26 @@ const runMatch = async (
   baselineWeights: readonly number[],
   seed: number,
 ): Promise<{ advantage: number; aWins: number; bWins: number; draws: number }> => {
-  const result = await playMatch(
-    { name: encodeWeights(weights), seed: seed + 1001 },
-    { name: encodeWeights(baselineWeights), seed: seed + 2002 },
-    { games, rng: seededRng(seed), numPlayers },
-  );
-  return {
-    advantage: result.aWins - result.bWins,
-    aWins: result.aWins,
-    bWins: result.bWins,
-    draws: result.draws,
-  };
+  // CRITICAL: average across multiple distinct deck-shuffle seeds within
+  // each evaluation. Without this, every candidate plays the SAME 200
+  // games and the tuner overfits to those specific game outcomes — the
+  // first version of v9 lost 32pp out-of-sample. Splitting the games
+  // budget into 4 seed blocks gives each candidate a different sample.
+  const SEED_BLOCKS = 4;
+  const gamesPerBlock = Math.max(1, Math.floor(games / SEED_BLOCKS));
+  let aWins = 0, bWins = 0, draws = 0;
+  for (let b = 0; b < SEED_BLOCKS; b++) {
+    const blockSeed = seed + b * 7919; // arbitrary stride to decorrelate
+    const result = await playMatch(
+      { name: encodeWeights(weights), seed: blockSeed + 1001 },
+      { name: encodeWeights(baselineWeights), seed: blockSeed + 2002 },
+      { games: gamesPerBlock, rng: seededRng(blockSeed), numPlayers },
+    );
+    aWins += result.aWins;
+    bWins += result.bWins;
+    draws += result.draws;
+  }
+  return { advantage: aWins - bWins, aWins, bWins, draws };
 };
 
 const coordinateDescent = async (

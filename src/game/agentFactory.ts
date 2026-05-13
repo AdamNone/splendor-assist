@@ -16,6 +16,7 @@ import {
   evaluateV6,
   evaluateV7,
   evaluateV8,
+  evaluateV9,
   evaluatorFromWeights,
   TUNABLE_FEATURES,
   evaluateV3PlusConc,
@@ -43,6 +44,7 @@ export const ALL_AGENT_NAMES = [
   'v6',
   'v7',
   'v8',
+  'v9',
   'search-d2',
   'search-d3',
   'search-d4',
@@ -111,6 +113,8 @@ export const makeAgent = (name: string, seed: number = 0): Agent | null => {
       return greedyAgent(evaluateV7);
     case 'v8':
       return greedyAgent(evaluateV8);
+    case 'v9':
+      return greedyAgent(evaluateV9);
     case 'search-d2':
       return searchAgent(2, evaluateV3);
     case 'search-d3':
