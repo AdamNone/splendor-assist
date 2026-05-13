@@ -647,6 +647,12 @@ export default function AssistantApp() {
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [noblePickerOpen, setNoblePickerOpen] = useState(false);
+  // When the main player reserves blindly from a deck, MCTS used an engine-
+  // chosen guess for the card identity — but the user actually saw the card.
+  // We open a picker after the reserve action so they can record the real
+  // identity, replacing the guess so subsequent recommendations are sound.
+  const [pendingBlindReserveTier, setPendingBlindReserveTier] =
+    useState<Tier | null>(null);
 
   const pushHistory = (prev: AssistantState) => {
     setHistory((h) => [prev, ...h].slice(0, MAX_HISTORY));
@@ -872,6 +878,18 @@ export default function AssistantApp() {
    * Saves the current form state to history so the user can undo.
    */
   const onApply = (action: Action) => {
+    // Special case: the MAIN player drawing blindly from a deck. In real
+    // play they see the card — so we pause here, prompt them to identify
+    // it, and only then commit. Opponents go through the normal path
+    // because we genuinely don't know what they drew.
+    if (
+      action.type === 'reserve'
+      && action.source.kind === 'deck'
+      && s.currentPlayer === s.mainPlayer
+    ) {
+      setPendingBlindReserveTier(action.source.tier);
+      return;
+    }
     try {
       const state = buildGameState(s);
       const next = apply(state, action);
@@ -900,6 +918,64 @@ export default function AssistantApp() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setErrors([`Apply failed: ${message}`]);
+    }
+  };
+
+  // Commit a main-player blind reserve once the user has identified the
+  // drawn card. We apply the reserve as if `kind: 'deck'`, then overwrite
+  // the engine's guessed identity with the user's actual card and clear
+  // the blind flag on that entry (the main player knows what they have).
+  const onConfirmBlindReserve = (actualCard: Card) => {
+    const tier = pendingBlindReserveTier;
+    if (tier === null) return;
+    try {
+      const state = buildGameState(s);
+      const next = apply(state, { type: 'reserve', source: { kind: 'deck', tier } });
+      const reserverIdx = state.currentPlayer;
+      const reservedList = next.players[reserverIdx]?.reserved;
+      if (reservedList && reservedList.length > 0) {
+        const lastEntry = reservedList[reservedList.length - 1];
+        if (lastEntry !== undefined) {
+          reservedList[reservedList.length - 1] = {
+            ...lastEntry,
+            card: actualCard,
+          };
+        }
+      }
+      pushHistory(s);
+      const seen = new Set(s.seenIds);
+      for (const p of next.players) {
+        for (const r of p.reserved) seen.add(r.card.id);
+      }
+      for (const t of TIERS) {
+        for (const c of next.faceUp[t]) {
+          if (c !== null) seen.add(c.id);
+        }
+      }
+      setS((prev) => {
+        const form = fromGameState(next, prev);
+        // The just-reserved entry is reservedFrom='deck' so fromGameState
+        // marks it blind. For the main player this is wrong — they saw
+        // the card, so clear blind on the last reserved entry.
+        const players = form.players.slice();
+        const target = players[reserverIdx];
+        if (target !== undefined && target.reserved.length > 0) {
+          const reserved = target.reserved.slice();
+          const last = reserved[reserved.length - 1];
+          if (last !== undefined) {
+            reserved[reserved.length - 1] = { card: last.card };
+            players[reserverIdx] = { ...target, reserved };
+          }
+        }
+        return { ...form, players, seenIds: Array.from(seen) };
+      });
+      setRecommendation(null);
+      setErrors([]);
+      setPendingBlindReserveTier(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setErrors([`Apply failed: ${message}`]);
+      setPendingBlindReserveTier(null);
     }
   };
 
@@ -1141,6 +1217,19 @@ export default function AssistantApp() {
               setNoblePickerOpen(false);
             }}
             onClose={() => setNoblePickerOpen(false)}
+          />
+        )}
+        {pendingBlindReserveTier !== null && (
+          <CardPickerModal
+            tier={pendingBlindReserveTier}
+            selected={null}
+            unavailableIds={usedCardIds}
+            title={`Which T${pendingBlindReserveTier} card did you draw?`}
+            onPick={(picked) => {
+              if (picked !== null) onConfirmBlindReserve(picked);
+              else setPendingBlindReserveTier(null);
+            }}
+            onClose={() => setPendingBlindReserveTier(null)}
           />
         )}
       </section>
@@ -1426,12 +1515,14 @@ function CardPickerModal({
   unavailableIds,
   onPick,
   onClose,
+  title,
 }: {
   tier: Tier;
   selected: Card | null;
   unavailableIds: Set<string>;
   onPick: (card: Card | null) => void;
   onClose: () => void;
+  title?: string;
 }) {
   // Show only cards still in the deck (or the currently-selected card if any,
   // so the user can keep their existing pick). Sort by bonus colour, then by
@@ -1472,7 +1563,7 @@ function CardPickerModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
-          <h3>Tier {tier} cards</h3>
+          <h3>{title ?? `Tier ${tier} cards`}</h3>
           <div className="modal-actions">
             {selected && (
               <button type="button" className="modal-clear" onClick={() => onPick(null)}>
