@@ -4,6 +4,15 @@
   padding: 24px 20px 80px;
 }
 
+.assistant header {
+  margin-bottom: 24px;
+}
+.assistant header .header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
 .assistant header h1 {
   margin: 0 0 4px;
   font-size: 28px;
@@ -11,8 +20,25 @@
 }
 .assistant header .sub {
   color: #6b7280;
-  margin: 0 0 24px;
+  margin: 0;
   font-size: 14px;
+}
+.new-game-btn {
+  flex: 0 0 auto;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  color: #4b5563;
+  cursor: pointer;
+}
+.new-game-btn:hover {
+  background: #f9fafb;
+  color: #1f2937;
+  border-color: #9ca3af;
 }
 .assistant header .sub kbd {
   display: inline-block;

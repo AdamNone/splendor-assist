@@ -247,6 +247,22 @@ export default function AssistantApp() {
     setS((prev) => ({ ...prev, currentPlayer: idx }));
   };
 
+  const resetGame = () => {
+    if (!window.confirm('Start a new game? This clears all entered cards, nobles, gems, and player tableaus.')) {
+      return;
+    }
+    setS((prev) => ({
+      numPlayers: prev.numPlayers,
+      currentPlayer: 0,
+      gemSupply: { ...GEM_SUPPLY_DEFAULT[prev.numPlayers] },
+      faceUp: emptyFaceUp(),
+      nobles: [],
+      players: Array.from({ length: prev.numPlayers }, emptyPlayer),
+    }));
+    setRecommendation(null);
+    setErrors([]);
+  };
+
   // ===== Validation =====
 
   const validate = (): string[] => {
@@ -323,11 +339,19 @@ export default function AssistantApp() {
   return (
     <div className="assistant">
       <header>
-        <h1>Splendor Assistant</h1>
-        <p className="sub">
-          Enter the current game state and press <kbd>Recommend</kbd> to get an
-          MCTS move suggestion. State persists to localStorage between sessions.
-        </p>
+        <div className="header-row">
+          <div>
+            <h1>Splendor Assistant</h1>
+            <p className="sub">
+              Enter the current game state and press <kbd>Recommend</kbd> to get
+              an MCTS move suggestion. State persists to localStorage between
+              sessions.
+            </p>
+          </div>
+          <button type="button" className="new-game-btn" onClick={resetGame}>
+            New game
+          </button>
+        </div>
       </header>
 
       <section className="card setup">
