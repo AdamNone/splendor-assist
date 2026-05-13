@@ -292,6 +292,120 @@ const describeAction = (state: GameState, action: Action): string => {
   return narrate(state, action);
 };
 
+// Inline visual chip used by ActionSummary. `gem` keeps the round-token
+// look to match player tableau gems; without it the chip renders as a
+// rounded-square (bonus-like).
+function ColorChip({
+  color,
+  count,
+  gem = true,
+}: {
+  color: Color | 'gold';
+  count?: number;
+  gem?: boolean;
+}) {
+  const bg = color === 'gold' ? GOLD_HEX : COLOR_HEX[color];
+  return (
+    <span className="action-chip" title={color}>
+      <span
+        className={`swatch ${gem ? 'gem' : ''}`}
+        style={{ background: bg }}
+      />
+      {count !== undefined && count > 1 && (
+        <span className="action-chip-count">{count}</span>
+      )}
+    </span>
+  );
+}
+
+// Compact "T2 [bonus-color] 3p" inline pill for a card target.
+function CardPill({ card }: { card: Card }) {
+  return (
+    <span className="action-card-pill">
+      <span className="action-card-tier">T{card.tier}</span>
+      <span
+        className="swatch"
+        style={{ background: COLOR_HEX[card.bonus] }}
+        title={`+1 ${card.bonus} bonus`}
+      />
+      {card.prestige > 0 && (
+        <span className="action-card-prestige">{card.prestige}p</span>
+      )}
+    </span>
+  );
+}
+
+// Renders an Action as inline JSX with colored chips instead of the
+// W/B/G/R/K letter codes from narrate(). Used in the recommendation
+// summary and the alternatives list. `state` should be the pre-action
+// state (so faceUp sources resolve to the right card).
+function ActionSummary({ state, action }: { state: GameState; action: Action }) {
+  switch (action.type) {
+    case 'take3':
+      return (
+        <span className="action-summary">
+          <span className="action-verb">Take 3:</span>
+          {action.colors.map((c) => (
+            <ColorChip key={c} color={c} />
+          ))}
+        </span>
+      );
+    case 'take2':
+      return (
+        <span className="action-summary">
+          <span className="action-verb">Take 2:</span>
+          <ColorChip color={action.color} />
+          <ColorChip color={action.color} />
+        </span>
+      );
+    case 'reserve': {
+      if (action.source.kind === 'deck') {
+        return (
+          <span className="action-summary">
+            <span className="action-verb">Reserve</span>
+            <span className="action-card-pill">
+              T{action.source.tier} <span className="action-card-blind">blind</span>
+            </span>
+          </span>
+        );
+      }
+      const card = state.faceUp[action.source.tier][action.source.slot];
+      return (
+        <span className="action-summary">
+          <span className="action-verb">Reserve</span>
+          {card ? <CardPill card={card} /> : <span>T{action.source.tier}?</span>}
+        </span>
+      );
+    }
+    case 'buy': {
+      let card: Card | undefined;
+      let fromReserve = false;
+      if (action.source.kind === 'faceUp') {
+        card = state.faceUp[action.source.tier][action.source.slot] ?? undefined;
+      } else {
+        card = state.players[state.currentPlayer]?.reserved[action.source.index]?.card;
+        fromReserve = true;
+      }
+      const payment = GEM_COLORS.filter((c) => action.payment[c] > 0);
+      return (
+        <span className="action-summary">
+          <span className="action-verb">Buy</span>
+          {card ? <CardPill card={card} /> : <span>?</span>}
+          {fromReserve && <span className="action-from-reserve">from reserve</span>}
+          {payment.length > 0 && (
+            <>
+              <span className="action-pay-label">pay</span>
+              {payment.map((c) => (
+                <ColorChip key={c} color={c} count={action.payment[c]} />
+              ))}
+            </>
+          )}
+        </span>
+      );
+    }
+  }
+}
+
 const nobleDescription = (n: Noble): string =>
   COLORS.filter((c) => n.requirement[c] > 0)
     .map((c) => `${n.requirement[c]} ${c}`)
@@ -835,6 +949,11 @@ export default function AssistantApp() {
   // that can't legally be revealed again — seenIds is exactly this set.
   const usedCardIds = useMemo(() => new Set(s.seenIds), [s.seenIds]);
 
+  // Engine-shape state, used by ActionSummary to resolve faceUp sources
+  // for the recommendation/alternatives display. Safe to use the current
+  // assistantState because recommendation is cleared on any state change.
+  const engineState = useMemo(() => buildGameState(s), [s]);
+
   // ===== Render =====
 
   const currentVisibleFaceUp = (tier: Tier) =>
@@ -1111,7 +1230,7 @@ export default function AssistantApp() {
                     {s.currentPlayer === s.mainPlayer ? 'Recommended' : 'Suggested'}
                   </span>
                   <span className="rec-option-summary">
-                    {namifyNarration(recommendation.summary)}
+                    <ActionSummary state={engineState} action={recommendation.bestAction} />
                   </span>
                 </div>
                 <span className="rec-option-cta">Click to apply →</span>
@@ -1153,7 +1272,7 @@ export default function AssistantApp() {
                         disabled={thinking}
                       >
                         <span className="rec-option-summary">
-                          {namifyNarration(a.summary)}
+                          <ActionSummary state={engineState} action={a.action} />
                         </span>
                         <span className="alt-meta">
                           {(a.meanReward * 100).toFixed(0)}% · {a.visits} visits

@@ -1190,8 +1190,73 @@ input[type='number']:focus {
   font-weight: 600;
 }
 .rec-option-summary {
-  font-family: ui-monospace, Menlo, monospace;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
+
+/* ===== ActionSummary inline rendering ===== */
+.action-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.action-verb {
+  font-weight: 600;
+  color: #064e3b;
+}
+.action-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.action-chip-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: #1f2937;
+}
+.action-card-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid #d1fae5;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.action-card-tier {
+  color: #4b5563;
+  font-weight: 700;
+}
+.action-card-prestige {
+  font-weight: 700;
+  color: #064e3b;
+  font-variant-numeric: tabular-nums;
+}
+.action-card-blind {
+  color: #6b7280;
+  font-style: italic;
+  font-weight: 500;
+}
+.action-from-reserve {
+  font-size: 11px;
+  color: #6b7280;
+  font-style: italic;
+}
+.action-pay-label {
+  font-size: 11px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-left: 2px;
+}
+/* Alt rows have a darker subtle backdrop so chips read against it. */
+.rec-option.alt .action-verb { color: #1f2937; }
 .rec-option-cta {
   font-size: 12px;
   color: #047857;
