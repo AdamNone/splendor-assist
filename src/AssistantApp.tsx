@@ -954,6 +954,21 @@ export default function AssistantApp() {
   // assistantState because recommendation is cleared on any state change.
   const engineState = useMemo(() => buildGameState(s), [s]);
 
+  // Which face-up slot (if any) the current recommendation points at. Drives
+  // the highlight ring on CardSlot so the user can see exactly which card
+  // the engine wants them to buy/reserve.
+  const highlightedFaceUp: { tier: Tier; slot: number } | null = useMemo(() => {
+    if (recommendation === null) return null;
+    const a = recommendation.bestAction;
+    if (a.type === 'buy' && a.source.kind === 'faceUp') {
+      return { tier: a.source.tier, slot: a.source.slot };
+    }
+    if (a.type === 'reserve' && a.source.kind === 'faceUp') {
+      return { tier: a.source.tier, slot: a.source.slot };
+    }
+    return null;
+  }, [recommendation]);
+
   // ===== Render =====
 
   const currentVisibleFaceUp = (tier: Tier) =>
@@ -1060,6 +1075,11 @@ export default function AssistantApp() {
                   tier={tier}
                   card={card}
                   unavailableIds={usedCardIds}
+                  highlighted={
+                    highlightedFaceUp !== null
+                    && highlightedFaceUp.tier === tier
+                    && highlightedFaceUp.slot === i
+                  }
                   onPick={(picked) => {
                     setS((prev) => {
                       const grid = { ...prev.faceUp, [tier]: prev.faceUp[tier].slice() };
@@ -1362,20 +1382,22 @@ function CardSlot({
   card,
   onPick,
   unavailableIds,
+  highlighted = false,
 }: {
   tier: Tier;
   card: Card | null;
   onPick: (card: Card | null) => void;
   unavailableIds: Set<string>;
+  highlighted?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <button
         type="button"
-        className={`card-slot ${card ? 'filled' : 'empty'}`}
+        className={`card-slot ${card ? 'filled' : 'empty'} ${highlighted ? 'highlighted' : ''}`}
         onClick={() => setOpen(true)}
-        aria-label={`face-up tier ${tier} slot ${card ? card.id : 'empty'}`}
+        aria-label={`face-up tier ${tier} slot ${card ? card.id : 'empty'}${highlighted ? ' (recommended)' : ''}`}
       >
         {card ? (
           <CardArt card={card} size="small" />

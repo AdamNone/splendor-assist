@@ -614,6 +614,17 @@ input[type='number']:focus {
   border: 0;
   padding: 0;
   cursor: pointer;
+  border-radius: 10px;
+}
+.card-slot.highlighted {
+  outline: 3px solid #10b981;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.18);
+  animation: rec-pulse 1.6s ease-in-out infinite;
+}
+@keyframes rec-pulse {
+  0%, 100% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.18); }
+  50% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0.08); }
 }
 .card-slot.empty {
   width: 70px;
