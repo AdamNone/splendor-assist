@@ -406,6 +406,76 @@ export const evaluateV7: Feature = (state, player) =>
     ? evaluateWith(FEATURES_V7_RACE, state, player)
     : evaluateWith(FEATURES_V7, state, player);
 
+// === Feature 10: self next-buy + noble-chain value ===
+// Mirror of opponentNextBuyFeature for the active player. Looks at every
+// face-up + reserved card *I* can afford right now and computes the
+// max prestige I could grab in one buy (including any noble that buy
+// would chain into).
+//
+// bonusCount already rewards having bonuses, but a 7-bonus pile with no
+// gems is useless this turn. This feature captures "the gems I have +
+// the cards I see make me one move away from N prestige" — a near-term,
+// action-grounded signal that bonusCount can't represent.
+export const selfNextBuyFeature: Feature = (state, me) => {
+  const player = state.players[me];
+  if (player === undefined) return 0;
+  let best = 0;
+  const considerCard = (card: Card, isReserved: boolean) => {
+    if (computePayment(card, player) === null) return;
+    // Competition discount: face-up cards can be snatched by anyone who can
+    // afford them, so a card that 3 opponents can also buy is worth roughly
+    // 1/(N+1) of its face value to me. Reserved cards are mine alone — no
+    // discount. Without this, in 4P the agent over-races to high-prestige
+    // shared cards that it usually won't end up getting.
+    let discount = 1;
+    if (!isReserved) {
+      let competitors = 0;
+      for (let i = 0; i < state.players.length; i++) {
+        if (i === me) continue;
+        const opp = state.players[i];
+        if (opp === undefined) continue;
+        if (computePayment(card, opp) !== null) competitors++;
+      }
+      discount = 1 / (1 + competitors);
+    }
+    const postBonuses = { ...player.bonuses, [card.bonus]: player.bonuses[card.bonus] + 1 };
+    let nobleGain = 0;
+    for (const noble of state.nobles) {
+      if (meetsNobleRequirement(postBonuses, noble.requirement)) {
+        nobleGain = Math.max(nobleGain, noble.prestige);
+      }
+    }
+    best = Math.max(best, (card.prestige + nobleGain) * discount);
+  };
+  for (const tier of TIERS) {
+    for (const slot of state.faceUp[tier]) {
+      if (slot !== null) considerCard(slot, false);
+    }
+  }
+  for (const r of player.reserved) considerCard(r.card, true);
+  return best;
+};
+
+// V8 mid-game: V7 + self_next_buy. selfNextBuyFeature already does its
+// own competition discount per-card (1/(N+1) where N = opponents who
+// could also afford that face-up card), so the global weight can stay
+// at 0.5 — the player-count adjustment lives inside the feature rather
+// than in the weight.
+export const FEATURES_V8: readonly WeightedFeature[] = [
+  ...FEATURES_V7,
+  { name: 'self_next_buy', weight: 0.5, fn: selfNextBuyFeature },
+];
+
+const FEATURES_V8_RACE: readonly WeightedFeature[] = [
+  ...FEATURES_V7_RACE,
+  { name: 'self_next_buy', weight: 1.5, fn: selfNextBuyFeature },
+];
+
+export const evaluateV8: Feature = (state, player) =>
+  isEndgame(state)
+    ? evaluateWith(FEATURES_V8_RACE, state, player)
+    : evaluateWith(FEATURES_V8, state, player);
+
 // `evaluate` always points at the current best evaluator. v7 (v6 with
 // opponent features normalized by opponent count) currently leads. v6
 // regressed in 4P (−5pp vs v3) because the summed opponent_*  features
@@ -414,7 +484,7 @@ export const evaluateV7: Feature = (state, player) =>
 // across 2P/3P/4P*. Rejected en route under depth-1 greedy:
 // concentration (Experiment 3), engine_value (Experiment 4),
 // gem_pressure (Experiment 5). See diary/phase-01-evaluator.md.
-export const evaluate: Feature = evaluateV7;
+export const evaluate: Feature = evaluateV8;
 
 // === Experimental v3-plus variants used to retest rejected features ===
 // Each variant adds one previously-rejected feature back on top of v3 at
