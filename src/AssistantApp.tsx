@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 // useMemo is used inside CardPickerModal below.
 import { apply, applyAllReveals, isTerminal, winner } from './game/apply';
+import { legalActions } from './game/legalActions';
 import { computePayment, meetsNobleRequirement } from './game/gems';
 import { mctsBestActionWithStats } from './game/mcts';
 import type { MctsCandidate } from './game/mcts';
@@ -1021,6 +1022,12 @@ export default function AssistantApp({
       while (!isTerminal(cf) && safety < 250) {
         setAnalysisProgress(`replaying turn ${safety + 1}…`);
         await yieldFrame();
+        // Stuck player → skip just like in the live sim.
+        if (legalActions(cf).length === 0) {
+          cf = passTurn(cf);
+          safety++;
+          continue;
+        }
         const stats = mctsBestActionWithStats(cf, {
           iterations: 300,
           evalFn: evaluateV3,
@@ -1073,6 +1080,18 @@ export default function AssistantApp({
     await new Promise((resolve) => setTimeout(resolve, 30)); // let the spinner render
     try {
       const state = buildGameState(s);
+      // Stuck-player check: no legal actions at all (10-gem cap + nothing
+      // affordable + reserve pile full). Auto-skip the turn rather than
+      // bubbling up an MCTS error.
+      if (legalActions(state).length === 0) {
+        const passed = passTurn(state);
+        pushHistory(s);
+        setS((prev) => ({ ...fromGameState(passed, prev) }));
+        setRecommendation(null);
+        setErrors([`${playerLabel(state.currentPlayer)} had no legal moves — turn skipped.`]);
+        setThinking(false);
+        return;
+      }
       const start = Date.now();
       const stats = mctsBestActionWithStats(state, {
         iterations,
@@ -1300,6 +1319,17 @@ export default function AssistantApp({
   const simStepOnce = (): boolean => {
     const state = buildGameState(s);
     if (isTerminal(state)) return false;
+    // Stuck-player edge case: every action would be illegal (10-gem cap +
+    // can't afford a buy + reserve pile full). Standard Splendor doesn't
+    // formally cover this; we skip the player by advancing the turn.
+    if (legalActions(state).length === 0) {
+      pushHistory(s);
+      const passed = passTurn(state);
+      setS((prev) => ({ ...fromGameState(passed, prev) }));
+      setRecommendation(null);
+      setErrors([]);
+      return true;
+    }
     try {
       const start = Date.now();
       const stats = mctsBestActionWithStats(state, {
@@ -2255,6 +2285,19 @@ const winLikelihoodAtState = (state: GameState, numPlayers: number): number[] =>
   if (sum <= 0) return scores.map(() => 1 / numPlayers);
   return exps.map((e) => e / sum);
 };
+
+/**
+ * Pass-the-turn helper for the (rare) state where a player has no legal
+ * actions. Standard Splendor rules don't formally cover this, but the
+ * pragmatic interpretation is "skip the player". Just advance the
+ * currentPlayer/turnNumber pair — apply() does the same at the end of
+ * every action, this is the same maneuver minus any action effects.
+ */
+const passTurn = (state: GameState): GameState => ({
+  ...state,
+  currentPlayer: ((state.currentPlayer + 1) % state.numPlayers) as PlayerIndex,
+  turnNumber: state.turnNumber + 1,
+});
 
 const buildWinLikelihoodSeries = (
   gameLog: GameLogEntry[],
