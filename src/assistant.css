@@ -6,7 +6,7 @@
 
 .body-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  grid-template-columns: minmax(320px, 0.7fr) minmax(0, 1fr);
   gap: 12px;
   align-items: start;
 }
@@ -78,7 +78,7 @@
   background: #fff;
 }
 .step-btn {
-  width: 20px;
+  width: 18px;
   height: 22px;
   border: 0;
   background: #f9fafb;
@@ -98,8 +98,10 @@
   cursor: not-allowed;
 }
 .step-input {
-  width: 30px;
+  width: 28px;
   height: 22px;
+  padding: 0;
+  box-sizing: border-box;
   border: 0;
   border-left: 1px solid #e5e7eb;
   border-right: 1px solid #e5e7eb;
@@ -398,14 +400,15 @@
 
 .setup {
   display: flex;
-  gap: 20px;
+  gap: 16px;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: center;
 }
 .setup .field {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
 }
 .setup label {
   font-size: 12px;
@@ -417,10 +420,10 @@
   gap: 4px;
 }
 .pill {
-  min-width: 38px;
-  height: 32px;
-  padding: 0 10px;
-  border-radius: 8px;
+  min-width: 32px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
   border: 1px solid #d1d5db;
   background: #fff;
   font-size: 13px;
@@ -697,6 +700,23 @@ input[type='number']:focus {
 .noble-tile.selected {
   opacity: 1;
   border-color: #1f2937;
+}
+.noble-add-btn {
+  appearance: none;
+  width: 70px;
+  height: 96px;
+  border: 2px dashed #d1d5db;
+  border-radius: 8px;
+  background: transparent;
+  color: #9ca3af;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.noble-add-btn:hover {
+  background: #f9fafb;
+  border-color: #9ca3af;
+  color: #4b5563;
 }
 .noble-art {
   background: linear-gradient(155deg, #fdf6e3 0%, #f1e4c6 100%);

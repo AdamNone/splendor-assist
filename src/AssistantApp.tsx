@@ -533,6 +533,7 @@ export default function AssistantApp() {
   const [thinking, setThinking] = useState(false);
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
+  const [noblePickerOpen, setNoblePickerOpen] = useState(false);
 
   const pushHistory = (prev: AssistantState) => {
     setHistory((h) => [prev, ...h].slice(0, MAX_HISTORY));
@@ -864,8 +865,6 @@ export default function AssistantApp() {
 
   // ===== Render helpers =====
 
-  const visibleNobles = ALL_NOBLES;
-
   // Card IDs no longer in the deck (ever placed face-up, currently reserved,
   // or already purchased by anyone). The picker uses this to grey out cards
   // that can't legally be revealed again — seenIds is exactly this set.
@@ -1014,22 +1013,39 @@ export default function AssistantApp() {
       <section className="card">
         <h2>Nobles ({s.nobles.length}/{s.numPlayers + 1})</h2>
         <div className="noble-grid">
-          {visibleNobles.map((n) => {
-            const selected = s.nobles.some((x) => x.id === n.id);
-            return (
-              <button
-                key={n.id}
-                type="button"
-                className={`noble-tile ${selected ? 'selected' : ''}`}
-                onClick={() => toggleNoble(n)}
-                title={describeNobleRequirement(n)}
-                aria-label={`Noble ${n.id} requiring ${describeNobleRequirement(n)}`}
-              >
-                <NobleArt noble={n} size="small" />
-              </button>
-            );
-          })}
+          {s.nobles.map((n) => (
+            <button
+              key={n.id}
+              type="button"
+              className="noble-tile selected"
+              onClick={() => toggleNoble(n)}
+              title={`Remove ${describeNobleRequirement(n)}`}
+              aria-label={`Remove noble requiring ${describeNobleRequirement(n)}`}
+            >
+              <NobleArt noble={n} size="small" />
+            </button>
+          ))}
+          {s.nobles.length < s.numPlayers + 1 && (
+            <button
+              type="button"
+              className="noble-add-btn"
+              onClick={() => setNoblePickerOpen(true)}
+              aria-label="Add a noble"
+            >
+              + add
+            </button>
+          )}
         </div>
+        {noblePickerOpen && (
+          <NoblePickerModal
+            unavailableIds={new Set(s.nobles.map((n) => n.id))}
+            onPick={(picked) => {
+              if (picked !== null) toggleNoble(picked);
+              setNoblePickerOpen(false);
+            }}
+            onClose={() => setNoblePickerOpen(false)}
+          />
+        )}
       </section>
 
       </div>
@@ -1397,6 +1413,63 @@ function CardPickerModal({
                   title={isUnavailable ? `${c.id} — already placed in another slot` : c.id}
                 >
                   <CardArt card={c} />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NoblePickerModal({
+  unavailableIds,
+  onPick,
+  onClose,
+}: {
+  unavailableIds: Set<string>;
+  onPick: (noble: Noble | null) => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-label="Pick a noble"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="modal-header">
+          <h3>Add noble</h3>
+          <div className="modal-actions">
+            <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
+              ✕
+            </button>
+          </div>
+        </div>
+        <div className="modal-body">
+          <div className="picker-grid">
+            {ALL_NOBLES.map((n) => {
+              const isUnavailable = unavailableIds.has(n.id);
+              return (
+                <button
+                  key={n.id}
+                  type="button"
+                  className={`picker-tile ${isUnavailable ? 'unavailable' : ''}`}
+                  onClick={() => { if (!isUnavailable) onPick(n); }}
+                  disabled={isUnavailable}
+                  title={isUnavailable ? 'Already on the board' : `Noble: ${COLORS.filter((c) => n.requirement[c] > 0).map((c) => `${n.requirement[c]} ${c}`).join(' + ')}`}
+                >
+                  <NobleArt noble={n} />
                 </button>
               );
             })}
