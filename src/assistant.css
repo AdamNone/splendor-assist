@@ -440,6 +440,12 @@ input[type='number']:focus {
   text-align: right;
 }
 
+.faceup-count .deck-left {
+  display: block;
+  font-size: 11px;
+  color: #6b7280;
+}
+
 /* ===== Card art (used as slot + in picker) ===== */
 .card-art {
   position: relative;

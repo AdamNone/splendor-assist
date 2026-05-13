@@ -85,6 +85,14 @@ type AssistantState = {
   faceUp: FaceUpGrid;
   nobles: Noble[];
   players: PlayerForm[];
+  /**
+   * IDs of every card that has ever been visible (face-up entry, manual
+   * reserve add, or blind reserve drawn by the engine). Cards in seenIds
+   * are no longer in their tier deck. Used to compute remaining deck size
+   * per tier — when a tier deck is exhausted, validate() allows that tier's
+   * face-up slot(s) to stay empty.
+   */
+  seenIds: string[];
 };
 
 const defaultPlayerName = (idx: number): string => `P${idx}`;
@@ -117,25 +125,43 @@ const initialState = (): AssistantState => {
         2: g[2].map((c) => (c === null ? null : cardsById.get(c.id) ?? null)),
         3: g[3].map((c) => (c === null ? null : cardsById.get(c.id) ?? null)),
       });
+      const rehydratedFaceUp = rehydrateGrid(parsed.faceUp);
+      const rehydratedPlayers: PlayerForm[] = parsed.players.map((p) => ({
+        ...p,
+        reserved: Array.isArray(p.reserved)
+          ? p.reserved.flatMap((r) => {
+              const card = cardsById.get(r.card?.id);
+              return card === undefined ? [] : [{ card }];
+            })
+          : [],
+      }));
+      // seenIds: prefer the saved set; if missing (older save format),
+      // reconstruct conservatively from whatever is currently visible.
+      let seenIds: string[];
+      if (Array.isArray(parsed.seenIds)) {
+        seenIds = parsed.seenIds.filter((id): id is string => typeof id === 'string');
+      } else {
+        const set = new Set<string>();
+        for (const tier of TIERS) {
+          for (const c of rehydratedFaceUp[tier]) {
+            if (c !== null) set.add(c.id);
+          }
+        }
+        for (const p of rehydratedPlayers) {
+          for (const r of p.reserved) set.add(r.card.id);
+        }
+        seenIds = Array.from(set);
+      }
       return {
         ...parsed,
         mainPlayer: (parsed.mainPlayer ?? 0) as PlayerIndex,
         playerNames: Array.isArray(parsed.playerNames) ? parsed.playerNames : [],
-        faceUp: rehydrateGrid(parsed.faceUp),
+        faceUp: rehydratedFaceUp,
         nobles: parsed.nobles
           .map((n) => noblesById.get(n.id))
           .filter((n): n is Noble => n !== undefined),
-        // Rehydrate reserved cards by id (older versions don't have
-        // .reserved on PlayerForm so we default to []).
-        players: parsed.players.map((p) => ({
-          ...p,
-          reserved: Array.isArray(p.reserved)
-            ? p.reserved.flatMap((r) => {
-                const card = cardsById.get(r.card?.id);
-                return card === undefined ? [] : [{ card }];
-              })
-            : [],
-        })),
+        players: rehydratedPlayers,
+        seenIds,
       };
     }
   } catch {
@@ -150,6 +176,7 @@ const initialState = (): AssistantState => {
     faceUp: emptyFaceUp(),
     nobles: [],
     players: [emptyPlayer(), emptyPlayer()],
+    seenIds: [],
   };
 };
 
@@ -184,6 +211,10 @@ const fromGameState = (gs: GameState, prev: AssistantState): AssistantState => (
   currentPlayer: gs.currentPlayer,
   mainPlayer: prev.mainPlayer,
   playerNames: prev.playerNames,
+  // seenIds is owned by the assistant, not the engine — carry it forward.
+  // Callers that need to extend it (e.g. onApply after a blind reserve)
+  // override seenIds after spreading the fromGameState result.
+  seenIds: prev.seenIds,
   gemSupply: { ...gs.gemSupply },
   faceUp: {
     1: gs.faceUp[1].slice(),
@@ -203,25 +234,22 @@ const fromGameState = (gs: GameState, prev: AssistantState): AssistantState => (
   })),
 });
 
+/**
+ * Cards still in the deck for tier T = every tier-T card that has never been
+ * seen. seenIds is maintained as cards flow through the UI, so this is exact
+ * (no overstating from forgotten purchases like the old `used = faceUp ∪
+ * reserved` approach).
+ */
+const tierDeckRemaining = (s: AssistantState, tier: Tier): Card[] => {
+  const seen = new Set(s.seenIds);
+  return ALL_CARDS.filter((c) => c.tier === tier && !seen.has(c.id));
+};
+
 const buildGameState = (s: AssistantState): GameState => {
-  const used = new Set<string>();
-  for (const tier of TIERS) {
-    for (const slot of s.faceUp[tier]) {
-      if (slot !== null) used.add(slot.id);
-    }
-  }
-  // Reserved cards have also left the deck — exclude them too.
-  for (const p of s.players) {
-    for (const r of p.reserved) used.add(r.card.id);
-  }
-  // Decks = remaining cards of that tier minus what's face-up or reserved.
-  // We don't model purchased cards explicitly (bonuses/prestige are entered
-  // directly), so the deck count is slightly overstated by the count of
-  // cards already bought — minor inaccuracy for MCTS-with-rollouts.
   const decks = {
-    1: ALL_CARDS.filter((c) => c.tier === 1 && !used.has(c.id)),
-    2: ALL_CARDS.filter((c) => c.tier === 2 && !used.has(c.id)),
-    3: ALL_CARDS.filter((c) => c.tier === 3 && !used.has(c.id)),
+    1: tierDeckRemaining(s, 1),
+    2: tierDeckRemaining(s, 2),
+    3: tierDeckRemaining(s, 3),
   };
   const players: PlayerState[] = s.players.slice(0, s.numPlayers).map((p) => ({
     gems: { ...p.gems },
@@ -630,6 +658,7 @@ export default function AssistantApp() {
       faceUp: emptyFaceUp(),
       nobles: [],
       players: Array.from({ length: prev.numPlayers }, emptyPlayer),
+      seenIds: [],
     }));
     setRecommendation(null);
     setErrors([]);
@@ -641,6 +670,11 @@ export default function AssistantApp() {
     const issues: string[] = [];
     const emptySlots: string[] = [];
     for (const tier of TIERS) {
+      const deckHasCards = tierDeckRemaining(s, tier).length > 0;
+      // An empty face-up slot is only a problem if there's a card waiting to
+      // be revealed for it. If the tier deck is exhausted, the slot is
+      // supposed to stay empty (standard Splendor rules).
+      if (!deckHasCards) continue;
       for (let slot = 0; slot < s.faceUp[tier].length; slot++) {
         if (s.faceUp[tier][slot] === null) {
           emptySlots.push(`T${tier} slot ${slot + 1}`);
@@ -755,7 +789,25 @@ export default function AssistantApp() {
       const state = buildGameState(s);
       const next = apply(state, action);
       pushHistory(s);
-      setS((prev) => fromGameState(next, prev));
+      // Roll seenIds forward. Most actions touch only already-seen cards
+      // (faceUp source), but a blind reserve from the deck top introduces
+      // a new card the user hasn't entered — the engine just drew it from
+      // our synthetic deck, so its identity is `next.players[*].reserved[*]`.
+      // Union'ing every visible card ID covers that case without special-
+      // casing the action type.
+      const seen = new Set(s.seenIds);
+      for (const p of next.players) {
+        for (const r of p.reserved) seen.add(r.card.id);
+      }
+      for (const tier of TIERS) {
+        for (const c of next.faceUp[tier]) {
+          if (c !== null) seen.add(c.id);
+        }
+      }
+      setS((prev) => ({
+        ...fromGameState(next, prev),
+        seenIds: Array.from(seen),
+      }));
       setRecommendation(null);
       setErrors([]);
     } catch (err) {
@@ -807,21 +859,10 @@ export default function AssistantApp() {
 
   const visibleNobles = ALL_NOBLES;
 
-  // Card IDs already on the table somewhere (face-up or reserved). The
-  // picker uses this to grey out cards the user already placed elsewhere
-  // so the same physical card can't be selected twice.
-  const usedCardIds = useMemo(() => {
-    const set = new Set<string>();
-    for (const tier of TIERS) {
-      for (const c of s.faceUp[tier]) {
-        if (c !== null) set.add(c.id);
-      }
-    }
-    for (const p of s.players) {
-      for (const r of p.reserved) set.add(r.card.id);
-    }
-    return set;
-  }, [s.faceUp, s.players]);
+  // Card IDs no longer in the deck (ever placed face-up, currently reserved,
+  // or already purchased by anyone). The picker uses this to grey out cards
+  // that can't legally be revealed again — seenIds is exactly this set.
+  const usedCardIds = useMemo(() => new Set(s.seenIds), [s.seenIds]);
 
   // ===== Render =====
 
@@ -947,14 +988,26 @@ export default function AssistantApp() {
                   onPick={(picked) => {
                     setS((prev) => {
                       const grid = { ...prev.faceUp, [tier]: prev.faceUp[tier].slice() };
+                      const prevCard = prev.faceUp[tier][i];
                       grid[tier][i] = picked;
-                      return { ...prev, faceUp: grid };
+                      // Maintain seenIds: adding a card → record it; clearing
+                      // a slot manually → treat as correction and un-record
+                      // the previously-occupying card (so it can be re-picked).
+                      const seen = new Set(prev.seenIds);
+                      if (picked !== null) seen.add(picked.id);
+                      else if (prevCard !== null && prevCard !== undefined) seen.delete(prevCard.id);
+                      return { ...prev, faceUp: grid, seenIds: Array.from(seen) };
                     });
                   }}
                 />
               ))}
             </div>
-            <span className="faceup-count">{currentVisibleFaceUp(tier)} / 4</span>
+            <span className="faceup-count">
+              {currentVisibleFaceUp(tier)} / 4
+              <span className="deck-left">
+                · deck {tierDeckRemaining(s, tier).length}
+              </span>
+            </span>
           </div>
         ))}
       </section>
@@ -1008,7 +1061,9 @@ export default function AssistantApp() {
                   ...target,
                   reserved: [...target.reserved, { card }],
                 };
-                return { ...prev, players };
+                const seen = new Set(prev.seenIds);
+                seen.add(card.id);
+                return { ...prev, players, seenIds: Array.from(seen) };
               })
             }
             onReservedRemove={(i) =>
@@ -1017,9 +1072,13 @@ export default function AssistantApp() {
                 const target = players[idx];
                 if (target === undefined) return prev;
                 const reserved = target.reserved.slice();
+                const removed = reserved[i];
                 reserved.splice(i, 1);
                 players[idx] = { ...target, reserved };
-                return { ...prev, players };
+                // Manual remove = correction; let the card be re-picked.
+                const seen = new Set(prev.seenIds);
+                if (removed !== undefined) seen.delete(removed.card.id);
+                return { ...prev, players, seenIds: Array.from(seen) };
               })
             }
           />
