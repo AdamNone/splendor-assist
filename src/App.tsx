@@ -54,7 +54,11 @@ export default function App() {
         {mode === 'simulator' && (
           // Separate localStorage key so the sim runs on its own state and
           // doesn't clobber the user's real game session.
-          <AssistantApp storageKey={SIM_STORAGE_KEY} key="simulator" />
+          <AssistantApp
+            storageKey={SIM_STORAGE_KEY}
+            mode="simulator"
+            key="simulator"
+          />
         )}
         {mode === 'entry' && <CardEntryApp />}
       </div>

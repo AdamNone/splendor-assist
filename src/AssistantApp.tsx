@@ -127,6 +127,19 @@ type GameLogEntry = {
   action: Action;
   /** Engine state immediately before the action was applied. */
   snapshotBefore: GameState;
+  /**
+   * Each player's prestige *after* the action was applied (incl. any
+   * noble award triggered by the action). Cheap to compute; the chart
+   * reads this directly without re-applying actions.
+   */
+  prestigesAfter: number[];
+  /**
+   * Normalized win-share estimate (sums to 1.0) per player at the moment
+   * the action was applied. Null when we didn't have an MCTS estimate
+   * handy (e.g. blind-reserve confirmation or noble-choice resolution
+   * paths don't re-run MCTS). The chart skips null entries.
+   */
+  winShares: number[] | null;
 };
 
 const defaultPlayerName = (idx: number): string => `P${idx}`;
@@ -342,6 +355,17 @@ const buildGameState = (s: AssistantState): GameState => {
 
 const describeAction = (state: GameState, action: Action): string => {
   return narrate(state, action);
+};
+
+/**
+ * Convert raw MCTS per-player rewards into a probability share that sums to
+ * 1.0. The raw values are sigmoid-squashed evaluator scores in [0, 1] —
+ * dividing by the sum gives the "of these likely winners, which one?" view.
+ */
+const normalizeWinRates = (raw: readonly number[]): number[] => {
+  const sum = raw.reduce((a, b) => a + b, 0);
+  if (sum <= 0) return raw.map(() => 1 / raw.length);
+  return raw.map((r) => r / sum);
 };
 
 // Inline visual chip used by ActionSummary. `gem` keeps the round-token
@@ -694,8 +718,10 @@ const MAX_HISTORY = 20;
 
 export default function AssistantApp({
   storageKey = DEFAULT_STORAGE_KEY,
+  mode = 'assistant',
 }: {
   storageKey?: string;
+  mode?: 'assistant' | 'simulator';
 } = {}) {
   const [s, setS] = useState<AssistantState>(() => initialState(storageKey));
   const [history, setHistory] = useState<AssistantState[]>([]);
@@ -1044,12 +1070,18 @@ export default function AssistantApp({
   const commitApplied = (
     next: GameState,
     seenIds: string[],
-    logEntry: GameLogEntry,
+    logEntry: Omit<GameLogEntry, 'prestigesAfter' | 'winShares'> & {
+      winShares: number[] | null;
+    },
   ) => {
+    const fullEntry: GameLogEntry = {
+      ...logEntry,
+      prestigesAfter: next.players.map((p) => p.prestige),
+    };
     setS((prev) => ({
       ...fromGameState(next, prev),
       seenIds,
-      gameLog: [...prev.gameLog, logEntry],
+      gameLog: [...prev.gameLog, fullEntry],
     }));
     setRecommendation(null);
     setErrors([]);
@@ -1068,7 +1100,13 @@ export default function AssistantApp({
         setPendingNobleChoice({ ...choice, action, preState: state });
         return; // wait for the user to resolve
       }
-      commitApplied(next, seen, { action, snapshotBefore: state });
+      commitApplied(next, seen, {
+        action,
+        snapshotBefore: state,
+        winShares: recommendation !== null
+          ? normalizeWinRates(recommendation.winRates)
+          : null,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setErrors([`Apply failed: ${message}`]);
@@ -1104,6 +1142,9 @@ export default function AssistantApp({
     commitApplied(finalState, seenIds, {
       action: pendingNobleChoice.action,
       snapshotBefore: pendingNobleChoice.preState,
+      winShares: recommendation !== null
+        ? normalizeWinRates(recommendation.winRates)
+        : null,
     });
     setPendingNobleChoice(null);
   };
@@ -1158,7 +1199,15 @@ export default function AssistantApp({
       setS((prev) => ({
         ...fromGameState(next, prev),
         seenIds,
-        gameLog: [...prev.gameLog, { action: stats.bestAction, snapshotBefore: state }],
+        gameLog: [
+          ...prev.gameLog,
+          {
+            action: stats.bestAction,
+            snapshotBefore: state,
+            prestigesAfter: next.players.map((p) => p.prestige),
+            winShares: normalizeWinRates(stats.winRates),
+          },
+        ],
       }));
       setRecommendation({
         bestAction: stats.bestAction,
@@ -1259,7 +1308,14 @@ export default function AssistantApp({
           seenIds: Array.from(seen),
           gameLog: [
             ...prev.gameLog,
-            { action: { type: 'reserve', source: { kind: 'deck', tier } }, snapshotBefore: state },
+            {
+              action: { type: 'reserve', source: { kind: 'deck', tier } },
+              snapshotBefore: state,
+              prestigesAfter: next.players.map((p) => p.prestige),
+              winShares: recommendation !== null
+                ? normalizeWinRates(recommendation.winRates)
+                : null,
+            },
           ],
         };
       });
@@ -1396,13 +1452,10 @@ export default function AssistantApp({
    *
    * Falls back to a flat distribution when MCTS hasn't given us anything.
    */
-  const winShares: number[] | undefined = useMemo(() => {
-    if (recommendation === null) return undefined;
-    const raw = recommendation.winRates;
-    const sum = raw.reduce((a, b) => a + b, 0);
-    if (sum <= 0) return raw.map(() => 1 / raw.length);
-    return raw.map((r) => r / sum);
-  }, [recommendation]);
+  const winShares: number[] | undefined = useMemo(
+    () => (recommendation === null ? undefined : normalizeWinRates(recommendation.winRates)),
+    [recommendation],
+  );
 
   // Which face-up slot (if any) the current recommendation points at. Drives
   // the highlight ring on CardSlot so the user can see exactly which card
@@ -1874,6 +1927,52 @@ export default function AssistantApp({
           </>
         )}
       </section>
+
+      {/* Analytics panel: live during sim, post-game in Assistant tab. */}
+      {(mode === 'simulator' || gameOver) && s.gameLog.length > 1 && (
+        <section className="card analytics-card">
+          <h2>
+            {gameOver ? 'Game review' : 'Game so far'}
+            <span className="analytics-sub">
+              · turn {s.gameLog.length}
+              {gameOver && gameWinner !== null && (
+                <> · winner: <strong>{playerLabel(gameWinner)}</strong></>
+              )}
+            </span>
+          </h2>
+          <HistoryChart
+            yLabel="Win share over time"
+            yMax={1}
+            playerLabels={s.players
+              .slice(0, s.numPlayers)
+              .map((_, i) => playerLabel(i))}
+            series={s.players
+              .slice(0, s.numPlayers)
+              .map((_, pIdx) =>
+                s.gameLog.map((e) =>
+                  e.winShares !== null ? (e.winShares[pIdx] ?? 0) : NaN,
+                ).filter((v) => !Number.isNaN(v)),
+              )}
+            format={(v) => `${(v * 100).toFixed(0)}%`}
+          />
+          <HistoryChart
+            yLabel="Prestige over time"
+            yMax={Math.max(
+              15,
+              ...s.gameLog.flatMap((e) => e.prestigesAfter),
+            )}
+            playerLabels={s.players
+              .slice(0, s.numPlayers)
+              .map((_, i) => playerLabel(i))}
+            series={s.players
+              .slice(0, s.numPlayers)
+              .map((_, pIdx) =>
+                s.gameLog.map((e) => e.prestigesAfter[pIdx] ?? 0),
+              )}
+            format={(v) => v.toFixed(0)}
+          />
+        </section>
+      )}
       </div>
       </div>
     </div>
@@ -1901,6 +2000,101 @@ function BlindCardArt({ tier, size = 'normal' }: { tier: Tier; size?: 'normal' |
     <div className={`card-art blind-art ${size === 'small' ? 'small' : ''} dark`}>
       <div className="blind-tier">T{tier}</div>
       <div className="blind-mark">?</div>
+    </div>
+  );
+}
+
+// =============================================================================
+// History chart — small inline SVG, one line per player. Used for both the
+// win-share trajectory and the prestige trajectory.
+// =============================================================================
+
+const CHART_PALETTE = ['#1f2937', '#dc2626', '#2563eb', '#15803d'];
+
+function HistoryChart({
+  series,
+  yMax,
+  yLabel,
+  height = 110,
+  playerLabels,
+  format = (v) => v.toFixed(2),
+}: {
+  series: number[][]; // [player][turn] = value
+  yMax: number;       // top of y-axis (0..yMax)
+  yLabel: string;
+  height?: number;
+  playerLabels: string[];
+  format?: (v: number) => string;
+}) {
+  const numTurns = series[0]?.length ?? 0;
+  if (numTurns < 2) {
+    return (
+      <div className="chart-empty">{yLabel}: need at least 2 turns to plot</div>
+    );
+  }
+  const padding = { top: 8, right: 8, bottom: 16, left: 28 };
+  const widthInner = Math.max(160, numTurns * 14);
+  const heightInner = height - padding.top - padding.bottom;
+  const xAt = (i: number) =>
+    padding.left + (numTurns === 1 ? widthInner / 2 : (i / (numTurns - 1)) * widthInner);
+  const yAt = (v: number) =>
+    padding.top + heightInner * (1 - Math.max(0, Math.min(yMax, v)) / yMax);
+  const total = padding.left + widthInner + padding.right;
+  const lastValues = series.map((s) => s[s.length - 1] ?? 0);
+  return (
+    <div className="chart">
+      <div className="chart-header">
+        <div className="chart-title">{yLabel}</div>
+        <div className="chart-legend">
+          {playerLabels.map((name, i) => (
+            <span key={i} className="chart-legend-item">
+              <span
+                className="chart-legend-dot"
+                style={{ background: CHART_PALETTE[i % CHART_PALETTE.length] }}
+              />
+              {name} <span className="chart-legend-val">{format(lastValues[i] ?? 0)}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+      <svg width={total} height={height} className="chart-svg">
+        {/* y-axis baseline + top guide */}
+        <line
+          x1={padding.left} y1={padding.top}
+          x2={padding.left} y2={height - padding.bottom}
+          stroke="#e5e7eb"
+        />
+        <line
+          x1={padding.left} y1={height - padding.bottom}
+          x2={total - padding.right} y2={height - padding.bottom}
+          stroke="#e5e7eb"
+        />
+        <text x={padding.left - 4} y={padding.top + 4} textAnchor="end" className="chart-tick">
+          {format(yMax)}
+        </text>
+        <text
+          x={padding.left - 4} y={height - padding.bottom}
+          textAnchor="end" className="chart-tick"
+        >
+          0
+        </text>
+        {series.map((line, pIdx) => {
+          const d = line
+            .map((v, i) => `${i === 0 ? 'M' : 'L'} ${xAt(i)} ${yAt(v)}`)
+            .join(' ');
+          return (
+            <path
+              key={pIdx}
+              d={d}
+              fill="none"
+              stroke={CHART_PALETTE[pIdx % CHART_PALETTE.length]}
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          );
+        })}
+      </svg>
     </div>
   );
 }
