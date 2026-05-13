@@ -1,7 +1,7 @@
 import { applyTurn } from './apply';
 import { evaluate } from './evaluate';
 import { legalActions } from './legalActions';
-import { mctsBestAction } from './mcts';
+import { mctsBestAction, type RolloutPolicy } from './mcts';
 import { searchBestAction } from './search';
 import type { Rng } from './setup';
 import type { Action, GameState } from './types';
@@ -76,19 +76,24 @@ export const iterativeAgent = (timeMs: number, evalFn: Evaluator = evaluate): Ag
   (state) => searchBestAction(state, { timeMs, evalFn });
 
 /**
- * MCTS with UCB1 selection and depth-capped random rollouts.
+ * MCTS with UCB1 selection and depth-capped rollouts.
  * `iterations` controls the budget; `evalFn` evaluates rollout endpoints
- * that aren't terminal; `rng` controls rollout policy.
+ * that aren't terminal; `rng` controls rollout choices; `policy` selects
+ * between heuristic (Splendor-priority) and pure random rollouts.
  */
 export const mctsAgent = (
   iterations: number,
   evalFn: Evaluator = evaluate,
   rng: Rng = Math.random,
-): Agent => (state) => mctsBestAction(state, { iterations, evalFn, rng });
+  policy: RolloutPolicy = 'heuristic',
+): Agent => (state) =>
+  mctsBestAction(state, { iterations, evalFn, rng, rolloutPolicy: policy });
 
 /** Same as mctsAgent but with a wall-clock budget instead of iteration count. */
 export const mctsTimeAgent = (
   timeMs: number,
   evalFn: Evaluator = evaluate,
   rng: Rng = Math.random,
-): Agent => (state) => mctsBestAction(state, { timeMs, evalFn, rng });
+  policy: RolloutPolicy = 'heuristic',
+): Agent => (state) =>
+  mctsBestAction(state, { timeMs, evalFn, rng, rolloutPolicy: policy });

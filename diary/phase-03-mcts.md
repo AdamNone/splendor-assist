@@ -125,6 +125,51 @@ give it; the win is *not* free.
 We don't yet have an experiment that disentangles these — Phase 3 v2
 (better rollout policy, ISMCTS) will let us probe further.
 
+## Experiment 12 — heuristic vs random rollout policy
+
+**Hypothesis.** Pure random rollouts are noisy; replacing them with a
+domain-aware playout policy should make each iteration's reward more
+informative, so MCTS converges to better moves at lower compute. The
+heuristic prioritizes legal actions by Splendor sense:
+
+  1. Highest-prestige affordable buy.
+  2. Any affordable buy (still grants a permanent bonus).
+  3. Any take action (take3 / take2).
+  4. Any reserve.
+
+Random tie-breaking within each tier. No `applyTurn` per candidate;
+the policy is just iteration + comparisons, so per-step cost is
+roughly the same as pure random.
+
+**Implementation.** `heuristicRolloutAction` in `src/game/mcts.ts`,
+controlled by `MctsOptions.rolloutPolicy`. Heuristic is now the
+default; pure random is available as `'random'` for A/B.
+
+**Results (8 games per cell, seed 7):**
+
+| Match                                | Result | Δ (pp) |
+|---|---|---|
+| mcts-1s (heuristic) vs mcts-1s-rand  | 5-2-1  | **+37.5 pp** |
+| mcts-500ms (heuristic) vs search-d3  | 6-2-0  | **+50.0 pp** |
+
+The second row is the headline: **at half the budget that previously
+only tied search-d3 (random rollouts), heuristic MCTS now beats
+search-d3 by +50 pp.** Heuristic rollouts roughly double the
+effective strength per unit of compute.
+
+**Why.** Two reinforcing reasons:
+
+1. **Each rollout is closer to plausible play.** Random play
+   under-buys (it picks any legal action uniformly, but buys are
+   ~10% of legal actions on average). Heuristic play always grabs a
+   real-prestige card when one is affordable, so the leaf state
+   reflects "what would happen if play continued sensibly" rather
+   than "what happens if everyone plays terribly for 20 turns."
+2. **Lower-variance rewards.** When rollouts produce more consistent
+   trajectories, UCB1's exploit term is meaningful at lower visit
+   counts, so the tree concentrates visits on actually-promising
+   branches faster.
+
 ## What's left for Phase 3
 
 - **Better rollouts.** Random rollouts are weak — a greedy rollout

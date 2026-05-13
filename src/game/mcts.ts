@@ -3,14 +3,16 @@ import { evaluate } from './evaluate';
 import type { Feature } from './evaluate';
 import { legalActions } from './legalActions';
 import type { Rng } from './setup';
-import type { Action, GameState, PlayerIndex } from './types';
+import type { Action, Card, GameState, PlayerIndex } from './types';
+
+export type RolloutPolicy = 'random' | 'heuristic';
 
 export type MctsOptions = {
   /** Number of MCTS iterations. Mutually exclusive with `timeMs`. */
   iterations?: number;
   /** Wall-clock budget in ms. Mutually exclusive with `iterations`. */
   timeMs?: number;
-  /** Cap random rollout length (turns) before evaluating the leaf state. */
+  /** Cap rollout length (turns) before evaluating the leaf state. */
   rolloutDepth?: number;
   /** Leaf evaluator used to score rollout end states that aren't terminal. */
   evalFn?: Feature;
@@ -18,6 +20,8 @@ export type MctsOptions = {
   rng?: Rng;
   /** UCB1 exploration constant. Standard is sqrt(2). */
   c?: number;
+  /** How rollouts pick actions. 'heuristic' is the new (Phase 3 v2) default. */
+  rolloutPolicy?: RolloutPolicy;
 };
 
 /**
@@ -92,20 +96,103 @@ const pickByUCB1 = (node: Node, c: number): Node => {
  */
 const squash = (x: number): number => 1 / (1 + Math.exp(-x / 5));
 
+/**
+ * Look up the card a buy action targets, regardless of source (face-up
+ * or own reserve). Returns null if the action isn't a buy or the card
+ * isn't found (shouldn't happen for a legal action).
+ */
+const buyTarget = (state: GameState, action: Action): Card | null => {
+  if (action.type !== 'buy') return null;
+  if (action.source.kind === 'faceUp') {
+    const slot = state.faceUp[action.source.tier][action.source.slot];
+    return slot ?? null;
+  }
+  const player = state.players[state.currentPlayer];
+  if (player === undefined) return null;
+  const reserved = player.reserved[action.source.index];
+  return reserved?.card ?? null;
+};
+
+const pickRandom = <T>(items: readonly T[], rng: Rng): T | null => {
+  if (items.length === 0) return null;
+  const idx = Math.floor(rng() * items.length);
+  return items[idx] ?? null;
+};
+
+/**
+ * Heuristic playout policy. Picks one legal action per call by simple
+ * Splendor priority:
+ *
+ *   1. The highest-prestige affordable buy.
+ *   2. Any other affordable buy (these still grant a permanent bonus).
+ *   3. Any "take" action (take3 preferred over take2 doesn't matter for the
+ *      policy; both go in the same pool).
+ *   4. Any reserve.
+ *
+ * Within each priority tier the action is picked uniformly at random.
+ * No `applyTurn` per candidate — fast (~µs per call) and produces
+ * Splendor-like trajectories that are far more informative than uniform
+ * random play.
+ */
+const heuristicRolloutAction = (state: GameState, rng: Rng): Action | null => {
+  const actions = legalActions(state);
+  if (actions.length === 0) return null;
+
+  let maxPrestige = 0;
+  for (const a of actions) {
+    const card = buyTarget(state, a);
+    if (card !== null && card.prestige > maxPrestige) maxPrestige = card.prestige;
+  }
+  if (maxPrestige > 0) {
+    const top: Action[] = [];
+    for (const a of actions) {
+      const card = buyTarget(state, a);
+      if (card !== null && card.prestige === maxPrestige) top.push(a);
+    }
+    const chosen = pickRandom(top, rng);
+    if (chosen !== null) return chosen;
+  }
+
+  const buys: Action[] = [];
+  for (const a of actions) if (a.type === 'buy') buys.push(a);
+  if (buys.length > 0) {
+    const chosen = pickRandom(buys, rng);
+    if (chosen !== null) return chosen;
+  }
+
+  const takes: Action[] = [];
+  for (const a of actions) if (a.type === 'take3' || a.type === 'take2') takes.push(a);
+  if (takes.length > 0) {
+    const chosen = pickRandom(takes, rng);
+    if (chosen !== null) return chosen;
+  }
+
+  return pickRandom(actions, rng);
+};
+
+const pickRolloutAction = (
+  state: GameState,
+  rng: Rng,
+  policy: RolloutPolicy,
+): Action | null => {
+  if (policy === 'random') {
+    return pickRandom(legalActions(state), rng);
+  }
+  return heuristicRolloutAction(state, rng);
+};
+
 const rollout = (
   state: GameState,
   evalFn: Feature,
   maxTurns: number,
   rng: Rng,
+  policy: RolloutPolicy,
 ): number[] => {
   let s = state;
   let turns = 0;
   while (!isTerminal(s) && turns < maxTurns) {
-    const actions = legalActions(s);
-    if (actions.length === 0) break;
-    const idx = Math.floor(rng() * actions.length);
-    const action = actions[idx];
-    if (action === undefined) break;
+    const action = pickRolloutAction(s, rng, policy);
+    if (action === null) break;
     s = applyTurn(s, action);
     turns++;
   }
@@ -154,6 +241,7 @@ export const mctsBestAction = (
   const rng = options.rng ?? Math.random;
   const c = options.c ?? DEFAULT_C;
   const rolloutDepth = options.rolloutDepth ?? DEFAULT_ROLLOUT_DEPTH;
+  const rolloutPolicy = options.rolloutPolicy ?? 'heuristic';
   const root = makeNode(rootState, null, null);
   if (root.untriedActions.length === 0) {
     throw new Error('mctsBestAction: no legal actions at root');
@@ -191,7 +279,7 @@ export const mctsBestAction = (
     }
 
     // Simulation.
-    const reward = rollout(state, evalFn, rolloutDepth, rng);
+    const reward = rollout(state, evalFn, rolloutDepth, rng, rolloutPolicy);
 
     // Backpropagation.
     backpropagate(node, reward);

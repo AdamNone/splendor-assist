@@ -106,6 +106,9 @@ const makeAgent = (name: string, agentRng: Rng): Agent | null => {
     case 'mcts-500ms': return mctsTimeAgent(500, evaluateV3, agentRng);
     case 'mcts-1s': return mctsTimeAgent(1000, evaluateV3, agentRng);
     case 'mcts-3s': return mctsTimeAgent(3000, evaluateV3, agentRng);
+    // 'rand' variants force the legacy random rollout policy for A/B vs heuristic.
+    case 'mcts-1s-rand': return mctsTimeAgent(1000, evaluateV3, agentRng, 'random');
+    case 'mcts-500ms-rand': return mctsTimeAgent(500, evaluateV3, agentRng, 'random');
     default: return null;
   }
 };
@@ -117,6 +120,7 @@ const AGENT_NAMES = [
   'iter-100', 'iter-300', 'iter-1000',
   'mcts-200', 'mcts-500', 'mcts-1000', 'mcts-2000',
   'mcts-500ms', 'mcts-1s', 'mcts-3s',
+  'mcts-1s-rand', 'mcts-500ms-rand',
 ];
 
 const compare = (
