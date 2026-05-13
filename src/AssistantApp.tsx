@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 // useMemo is used inside CardPickerModal below.
+import { apply } from './game/apply';
 import { mctsBestActionWithStats } from './game/mcts';
 import type { MctsCandidate } from './game/mcts';
 import { evaluateV3 } from './game/evaluate';
@@ -54,6 +55,11 @@ type FaceUpGrid = Record<Tier, Array<Card | null>>;
 type AssistantState = {
   numPlayers: 2 | 3 | 4;
   currentPlayer: PlayerIndex;
+  /**
+   * The player the assistant works for. Only this player gets
+   * auto-recommendations. Defaults to P0; reconfigurable in the header.
+   */
+  mainPlayer: PlayerIndex;
   gemSupply: GemPool;
   faceUp: FaceUpGrid;
   nobles: Noble[];
@@ -89,6 +95,7 @@ const initialState = (): AssistantState => {
       });
       return {
         ...parsed,
+        mainPlayer: (parsed.mainPlayer ?? 0) as PlayerIndex,
         faceUp: rehydrateGrid(parsed.faceUp),
         nobles: parsed.nobles
           .map((n) => noblesById.get(n.id))
@@ -101,6 +108,7 @@ const initialState = (): AssistantState => {
   return {
     numPlayers: 2,
     currentPlayer: 0,
+    mainPlayer: 0,
     gemSupply: { ...GEM_SUPPLY_DEFAULT[2] },
     faceUp: emptyFaceUp(),
     nobles: [],
@@ -109,12 +117,14 @@ const initialState = (): AssistantState => {
 };
 
 type Alternative = {
+  action: Action;
   summary: string;
   visits: number;
   meanReward: number;
 };
 
 type Recommendation = {
+  bestAction: Action;
   summary: string;
   winRates: number[];
   currentPlayer: number;
@@ -122,6 +132,29 @@ type Recommendation = {
   alternatives: Alternative[];
   thinkingMs: number;
 };
+
+/**
+ * Pull the user-editable fields out of a fresh GameState (e.g. one we just
+ * produced via `apply`) back into our AssistantState. Preserves
+ * settings (mainPlayer) that aren't part of the engine state.
+ */
+const fromGameState = (gs: GameState, prev: AssistantState): AssistantState => ({
+  numPlayers: gs.numPlayers,
+  currentPlayer: gs.currentPlayer,
+  mainPlayer: prev.mainPlayer,
+  gemSupply: { ...gs.gemSupply },
+  faceUp: {
+    1: gs.faceUp[1].slice(),
+    2: gs.faceUp[2].slice(),
+    3: gs.faceUp[3].slice(),
+  },
+  nobles: gs.nobles.slice(),
+  players: gs.players.slice(0, gs.numPlayers).map((p) => ({
+    bonuses: { ...p.bonuses },
+    gems: { ...p.gems },
+    prestige: p.prestige,
+  })),
+});
 
 const buildGameState = (s: AssistantState): GameState => {
   const used = new Set<string>();
@@ -193,10 +226,15 @@ export default function AssistantApp() {
         ...prev,
         numPlayers: n,
         currentPlayer: (Math.min(prev.currentPlayer, n - 1) as PlayerIndex),
+        mainPlayer: (Math.min(prev.mainPlayer, n - 1) as PlayerIndex),
         gemSupply: { ...GEM_SUPPLY_DEFAULT[n] },
         players,
       };
     });
+  };
+
+  const setMainPlayer = (idx: PlayerIndex) => {
+    setS((prev) => ({ ...prev, mainPlayer: idx }));
   };
 
   const setSupplyGem = (c: GemColor, value: number) => {
@@ -254,6 +292,7 @@ export default function AssistantApp() {
     setS((prev) => ({
       numPlayers: prev.numPlayers,
       currentPlayer: 0,
+      mainPlayer: prev.mainPlayer,
       gemSupply: { ...GEM_SUPPLY_DEFAULT[prev.numPlayers] },
       faceUp: emptyFaceUp(),
       nobles: [],
@@ -276,7 +315,13 @@ export default function AssistantApp() {
 
   // ===== Recommend =====
 
-  const onRecommend = async () => {
+  /**
+   * Shared MCTS runner used by both the manual "Recompute" button and the
+   * auto-recommend effect. iterations is parameterised: manual runs use
+   * the higher 500 for a more confident pick; auto-recommend uses 300 so
+   * the brief UI freeze per state edit is shorter.
+   */
+  const runMcts = async (iterations: number) => {
     const issues = validate();
     setErrors(issues);
     setThinking(true);
@@ -286,7 +331,7 @@ export default function AssistantApp() {
       const state = buildGameState(s);
       const start = Date.now();
       const stats = mctsBestActionWithStats(state, {
-        iterations: 500,
+        iterations,
         evalFn: evaluateV3,
         rng: seededRng(Date.now() & 0xffff_ffff),
       });
@@ -294,11 +339,13 @@ export default function AssistantApp() {
       const alternatives: Alternative[] = stats.candidates
         .slice(1, 5)
         .map((c: MctsCandidate) => ({
+          action: c.action,
           summary: describeAction(state, c.action),
           visits: c.visits,
           meanReward: c.meanReward,
         }));
       setRecommendation({
+        bestAction: stats.bestAction,
         summary,
         winRates: stats.winRates,
         currentPlayer: state.currentPlayer,
@@ -313,6 +360,64 @@ export default function AssistantApp() {
       setThinking(false);
     }
   };
+
+  /**
+   * Apply an action to the engine and update the form to match the
+   * resulting state. The face-up slot the action operated on is left
+   * empty if the action was a buy or face-up reserve — the user fills
+   * the revealed card via the existing picker.
+   */
+  const onApply = (action: Action) => {
+    try {
+      const state = buildGameState(s);
+      const next = apply(state, action);
+      setS((prev) => fromGameState(next, prev));
+      setRecommendation(null);
+      setErrors([]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setErrors([`Apply failed: ${message}`]);
+    }
+  };
+
+  // ===== Auto-recommend =====
+
+  const stateForEffect = s; // explicit so the effect can depend on the whole object
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    // Cancel any pending auto-run if state changed mid-debounce.
+    if (debounceRef.current !== null) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    // Not the main player's turn — clear any stale recommendation.
+    if (stateForEffect.currentPlayer !== stateForEffect.mainPlayer) {
+      setRecommendation(null);
+      return;
+    }
+    // Validation must pass before we burn cycles on a doomed run.
+    const issues = validate();
+    if (issues.length > 0) return;
+    debounceRef.current = setTimeout(() => {
+      void runMcts(300);
+    }, 900);
+    return () => {
+      if (debounceRef.current !== null) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runMcts / validate close over s
+  }, [
+    stateForEffect.currentPlayer,
+    stateForEffect.mainPlayer,
+    stateForEffect.gemSupply,
+    stateForEffect.faceUp,
+    stateForEffect.nobles,
+    stateForEffect.players,
+    stateForEffect.numPlayers,
+  ]);
 
   // ===== Render helpers =====
 
@@ -380,6 +485,22 @@ export default function AssistantApp() {
                 type="button"
                 className={`pill ${s.currentPlayer === i ? 'active' : ''}`}
                 onClick={() => setCurrentPlayer(i as PlayerIndex)}
+              >
+                P{i}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="field">
+          <label>You are</label>
+          <div className="pill-row">
+            {Array.from({ length: s.numPlayers }, (_, i) => (
+              <button
+                key={i}
+                type="button"
+                className={`pill ${s.mainPlayer === i ? 'active' : ''}`}
+                onClick={() => setMainPlayer(i as PlayerIndex)}
               >
                 P{i}
               </button>
@@ -484,74 +605,117 @@ export default function AssistantApp() {
       </section>
 
       <section className="card recommend">
-        <button
-          type="button"
-          className="recommend-btn"
-          onClick={onRecommend}
-          disabled={thinking}
-        >
-          {thinking ? 'Thinking…' : 'Recommend move'}
-        </button>
-        {errors.length > 0 && (
-          <div className="issues">
-            {errors.map((e, i) => (
-              <div key={i}>⚠ {e}</div>
-            ))}
+        {s.currentPlayer !== s.mainPlayer ? (
+          <div className="waiting">
+            <div className="waiting-title">
+              It's P{s.currentPlayer}'s turn — not yours.
+            </div>
+            <p className="waiting-sub">
+              Update their cards, gems, bonuses and prestige above to reflect
+              their move, then switch the <strong>Whose turn</strong> pill back
+              to P{s.mainPlayer}. The assistant will auto-recommend.
+            </p>
+            <button
+              type="button"
+              className="waiting-cta"
+              onClick={() => setCurrentPlayer(s.mainPlayer)}
+            >
+              Skip to P{s.mainPlayer}'s turn
+            </button>
           </div>
-        )}
-        {recommendation && (
-          <div className="recommendation">
-            <div className="rec-line">
-              <strong>Recommended:</strong> {recommendation.summary}
-            </div>
-
-            <div className="winrates">
-              <div className="winrates-title">
-                Estimated win chance (Monte-Carlo, not calibrated)
+        ) : (
+          <>
+            <div className="recommend-header">
+              <strong>Your turn (P{s.mainPlayer})</strong>
+              <div className="recommend-status">
+                {thinking && <span className="thinking-indicator">Thinking…</span>}
+                <button
+                  type="button"
+                  className="recompute-btn"
+                  onClick={() => void runMcts(500)}
+                  disabled={thinking}
+                >
+                  Recompute (deeper)
+                </button>
               </div>
-              {recommendation.winRates.map((rate, i) => {
-                const pct = Math.max(0, Math.min(1, rate)) * 100;
-                const isMe = i === recommendation.currentPlayer;
-                return (
-                  <div
-                    key={i}
-                    className={`winrate-row ${isMe ? 'me' : ''}`}
-                  >
-                    <span className="winrate-label">
-                      P{i}{isMe ? ' (to move)' : ''}
-                    </span>
-                    <div className="winrate-bar">
-                      <div
-                        className="winrate-fill"
-                        style={{ width: `${pct.toFixed(1)}%` }}
-                      />
-                    </div>
-                    <span className="winrate-value">{pct.toFixed(0)}%</span>
-                  </div>
-                );
-              })}
             </div>
-
-            {recommendation.alternatives.length > 0 && (
-              <div className="alternatives">
-                <div className="alt-title">Next-best options</div>
-                <ul>
-                  {recommendation.alternatives.map((a, i) => (
-                    <li key={i}>
-                      <span className="alt-summary">{a.summary}</span>
-                      <span className="alt-meta">
-                        {(a.meanReward * 100).toFixed(0)}% · {a.visits} visits
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+            {errors.length > 0 && (
+              <div className="issues">
+                {errors.map((e, i) => (
+                  <div key={i}>⚠ {e}</div>
+                ))}
               </div>
             )}
+            {recommendation && (
+              <div className="recommendation">
+                <button
+                  type="button"
+                  className="rec-option recommended"
+                  onClick={() => onApply(recommendation.bestAction)}
+                  disabled={thinking}
+                >
+                  <div className="rec-option-left">
+                    <span className="rec-option-tag">Recommended</span>
+                    <span className="rec-option-summary">
+                      {recommendation.summary}
+                    </span>
+                  </div>
+                  <span className="rec-option-cta">Click to apply →</span>
+                </button>
 
-            <div className="rec-meta">
-              MCTS · {recommendation.rootVisits} iter · {recommendation.thinkingMs} ms
-            </div>
-          </div>
+                <div className="winrates">
+                  <div className="winrates-title">
+                    Estimated win chance (Monte-Carlo, not calibrated)
+                  </div>
+                  {recommendation.winRates.map((rate, i) => {
+                    const pct = Math.max(0, Math.min(1, rate)) * 100;
+                    const isMe = i === recommendation.currentPlayer;
+                    return (
+                      <div
+                        key={i}
+                        className={`winrate-row ${isMe ? 'me' : ''}`}
+                      >
+                        <span className="winrate-label">
+                          P{i}{isMe ? ' (to move)' : ''}
+                        </span>
+                        <div className="winrate-bar">
+                          <div
+                            className="winrate-fill"
+                            style={{ width: `${pct.toFixed(1)}%` }}
+                          />
+                        </div>
+                        <span className="winrate-value">{pct.toFixed(0)}%</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {recommendation.alternatives.length > 0 && (
+                  <div className="alternatives">
+                    <div className="alt-title">Or pick a different move</div>
+                    {recommendation.alternatives.map((a, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        className="rec-option alt"
+                        onClick={() => onApply(a.action)}
+                        disabled={thinking}
+                      >
+                        <span className="rec-option-summary">{a.summary}</span>
+                        <span className="alt-meta">
+                          {(a.meanReward * 100).toFixed(0)}% · {a.visits} visits
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div className="rec-meta">
+                  MCTS · {recommendation.rootVisits} iter · {recommendation.thinkingMs} ms
+                </div>
+              </div>
+            )}
+          </>
         )}
       </section>
     </div>
