@@ -1,4 +1,11 @@
-import { greedyAgent, iterativeAgent, randomAgent, searchAgent } from '../game/agents';
+import {
+  greedyAgent,
+  iterativeAgent,
+  mctsAgent,
+  mctsTimeAgent,
+  randomAgent,
+  searchAgent,
+} from '../game/agents';
 import { applyTurn, isTerminal, winner } from '../game/apply';
 import {
   evaluateBaseline,
@@ -92,6 +99,13 @@ const makeAgent = (name: string, agentRng: Rng): Agent | null => {
     case 'iter-100': return iterativeAgent(100, evaluateV3);
     case 'iter-300': return iterativeAgent(300, evaluateV3);
     case 'iter-1000': return iterativeAgent(1000, evaluateV3);
+    case 'mcts-200': return mctsAgent(200, evaluateV3, agentRng);
+    case 'mcts-500': return mctsAgent(500, evaluateV3, agentRng);
+    case 'mcts-1000': return mctsAgent(1000, evaluateV3, agentRng);
+    case 'mcts-2000': return mctsAgent(2000, evaluateV3, agentRng);
+    case 'mcts-500ms': return mctsTimeAgent(500, evaluateV3, agentRng);
+    case 'mcts-1s': return mctsTimeAgent(1000, evaluateV3, agentRng);
+    case 'mcts-3s': return mctsTimeAgent(3000, evaluateV3, agentRng);
     default: return null;
   }
 };
@@ -101,6 +115,8 @@ const AGENT_NAMES = [
   'search-d2', 'search-d3', 'search-d4',
   'search-d3-conc', 'search-d3-engine', 'search-d3-pressure',
   'iter-100', 'iter-300', 'iter-1000',
+  'mcts-200', 'mcts-500', 'mcts-1000', 'mcts-2000',
+  'mcts-500ms', 'mcts-1s', 'mcts-3s',
 ];
 
 const compare = (

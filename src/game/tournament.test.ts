@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { greedyAgent, randomAgent, searchAgent } from './agents';
+import { greedyAgent, mctsAgent, randomAgent, searchAgent } from './agents';
 import { evaluateBaseline, evaluateV2, evaluateV3 } from './evaluate';
 import { seededRng } from './setup';
 import { playMatch } from './tournament';
@@ -82,6 +82,22 @@ describe('experiment: search depth-3 (alpha-beta) vs greedy(v3)', () => {
     const result = playMatch(
       searchAgent(3, evaluateV3),
       greedyAgent(evaluateV3),
+      { games: 4, rng: seededRng(42) },
+    );
+    expect(result.aWins).toBeGreaterThanOrEqual(result.bWins);
+  }, 180_000);
+});
+
+describe('experiment: mcts (200 iter) vs random', () => {
+  // mcts-1s beats search-d3 by +44 pp (Experiment 11); spot checks show
+  // mcts-500 beats greedy(v3) by ~+33 pp. This regression test uses a
+  // smaller budget (200 iter) against random — MCTS at any reasonable
+  // budget must crush a random opponent, so this only catches outright
+  // regressions in the MCTS machinery.
+  it('mcts-200 wins at least as many head-to-head games as random', () => {
+    const result = playMatch(
+      mctsAgent(200, evaluateV3, seededRng(101)),
+      randomAgent(seededRng(7)),
       { games: 4, rng: seededRng(42) },
     );
     expect(result.aWins).toBeGreaterThanOrEqual(result.bWins);
