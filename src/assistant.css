@@ -410,6 +410,30 @@
   align-items: center;
   gap: 8px;
 }
+
+/* Setup strip: same controls as .setup but no card chrome, sits flush
+   below the header so it costs ~30px instead of ~80px. */
+.setup-strip {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 0 4px;
+  margin-bottom: 10px;
+}
+.setup-strip .field {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.setup-strip label {
+  font-size: 11px;
+  font-weight: 500;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 .setup label {
   font-size: 12px;
   font-weight: 500;
@@ -755,8 +779,8 @@ input[type='number']:focus {
 .player-panel {
   border: 1px solid #e5e7eb;
   border-radius: 8px;
-  padding: 8px 10px;
-  margin-bottom: 6px;
+  padding: 6px 10px;
+  margin-bottom: 4px;
   background: #fafaf7;
 }
 .player-panel.current {
@@ -767,7 +791,7 @@ input[type='number']:focus {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 0;
   font-size: 13px;
 }
 .player-name-input {
@@ -848,8 +872,36 @@ input[type='number']:focus {
   font-variant-numeric: tabular-nums;
 }
 .readonly-prestige {
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 700;
   color: #92400e;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Single-row player stats: B-label + 5 bonus cells | G-label + 6 gem
+   cells | ★ prestige. Three vertical rows collapsed to one. */
+.player-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.player-stats .readonly-cell { gap: 3px; }
+.stat-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-right: 1px;
+}
+.stats-sep {
+  width: 1px;
+  height: 14px;
+  background: #e5e7eb;
+  margin: 0 2px;
 }
 .player-label {
   font-size: 12px;
@@ -1226,15 +1278,34 @@ input[type='number']:focus {
   background: rgba(255, 255, 255, 0.6);
   border: 1px solid #bbf7d0;
   border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 10px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
 }
-.alt-title {
+.alternatives[open] {
+  padding-bottom: 8px;
+}
+.alternatives summary.alt-title {
   font-size: 11px;
   color: #065f46;
-  margin-bottom: 8px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  cursor: pointer;
+  list-style: none;
+  padding: 2px 0;
+}
+.alternatives summary.alt-title::-webkit-details-marker {
+  display: none;
+}
+.alternatives summary.alt-title::before {
+  content: '▶ ';
+  font-size: 9px;
+  margin-right: 4px;
+}
+.alternatives[open] summary.alt-title::before {
+  content: '▼ ';
+}
+.alternatives[open] summary.alt-title {
+  margin-bottom: 6px;
 }
 .alt-meta {
   font-variant-numeric: tabular-nums;

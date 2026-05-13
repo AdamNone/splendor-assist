@@ -864,7 +864,7 @@ export default function AssistantApp() {
         </div>
       </header>
 
-      <section className="card setup">
+      <section className="setup-strip">
         <div className="field">
           <label>Players</label>
           <div className="pill-row">
@@ -1147,8 +1147,10 @@ export default function AssistantApp() {
                 )}
 
                 {recommendation.alternatives.length > 0 && (
-                  <div className="alternatives">
-                    <div className="alt-title">Or pick a different move</div>
+                  <details className="alternatives">
+                    <summary className="alt-title">
+                      Or pick a different move ({recommendation.alternatives.length})
+                    </summary>
                     {recommendation.alternatives.map((a, i) => (
                       <button
                         key={i}
@@ -1165,7 +1167,7 @@ export default function AssistantApp() {
                         </span>
                       </button>
                     ))}
-                  </div>
+                  </details>
                 )}
 
                 <div className="rec-meta">
@@ -1462,48 +1464,42 @@ function PlayerPanel({
           </span>
         )}
       </div>
-      <div className="player-row">
-        <span className="player-label">Bonuses</span>
-        <div className="readonly-row">
-          {COLORS.map((c) => (
-            <div
-              key={c}
-              className="readonly-cell"
-              title={`${c} bonus`}
-              aria-label={`P${idx} bonus ${c}: ${player.bonuses[c]}`}
-            >
-              <span className="swatch" style={{ background: COLOR_HEX[c] }} />
-              <span className="readonly-num">{player.bonuses[c]}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="player-row">
-        <span className="player-label">Gems</span>
-        <div className="readonly-row">
-          {GEM_COLORS.map((c) => (
-            <div
-              key={c}
-              className="readonly-cell"
-              title={`${c} gems`}
-              aria-label={`P${idx} gem ${c}: ${player.gems[c]}`}
-            >
-              <span
-                className="swatch"
-                style={{ background: c === 'gold' ? GOLD_HEX : COLOR_HEX[c] }}
-              />
-              <span className="readonly-num">{player.gems[c]}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="player-row">
-        <span className="player-label">Prestige</span>
+      <div className="player-stats">
+        <span className="stat-label" title="Bonuses">B</span>
+        {COLORS.map((c) => (
+          <div
+            key={`b-${c}`}
+            className="readonly-cell"
+            title={`${c} bonus: ${player.bonuses[c]}`}
+            aria-label={`P${idx} bonus ${c}: ${player.bonuses[c]}`}
+          >
+            <span className="swatch" style={{ background: COLOR_HEX[c] }} />
+            <span className="readonly-num">{player.bonuses[c]}</span>
+          </div>
+        ))}
+        <span className="stats-sep" />
+        <span className="stat-label" title="Gems">G</span>
+        {GEM_COLORS.map((c) => (
+          <div
+            key={`g-${c}`}
+            className="readonly-cell"
+            title={`${c} gems: ${player.gems[c]}`}
+            aria-label={`P${idx} gem ${c}: ${player.gems[c]}`}
+          >
+            <span
+              className="swatch"
+              style={{ background: c === 'gold' ? GOLD_HEX : COLOR_HEX[c] }}
+            />
+            <span className="readonly-num">{player.gems[c]}</span>
+          </div>
+        ))}
+        <span className="stats-sep" />
         <span
-          className="readonly-num readonly-prestige"
+          className="readonly-prestige"
+          title={`Prestige: ${player.prestige}`}
           aria-label={`P${idx} prestige: ${player.prestige}`}
         >
-          {player.prestige}
+          ★ {player.prestige}
         </span>
       </div>
 
