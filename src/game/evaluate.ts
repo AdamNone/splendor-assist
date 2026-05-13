@@ -476,6 +476,34 @@ export const evaluateV8: Feature = (state, player) =>
     ? evaluateWith(FEATURES_V8_RACE, state, player)
     : evaluateWith(FEATURES_V8, state, player);
 
+// Ordered list of tunable mid-game features. Used by the coordinate-descent
+// tuner (src/cli/tune.ts) AND by the agentFactory's 'tunable:...' parser,
+// so the index order must match. v8 defaults are the baseline the tuner
+// starts from.
+export const TUNABLE_FEATURES: readonly { name: string; fn: Feature; v8: number }[] = [
+  { name: 'prestige',                      fn: prestigeFeature,                   v8: 1.0 },
+  { name: 'bonus_count',                   fn: bonusCountFeature,                 v8: 0.5 },
+  { name: 'noble_proximity',               fn: nobleProximityFeature,             v8: 1.0 },
+  { name: 'opponent_threat_norm',          fn: opponentThreatNormFeature,         v8: 0.5 },
+  { name: 'opponent_noble_proximity_norm', fn: opponentNobleProximityNormFeature, v8: 0.5 },
+  { name: 'opponent_next_buy_norm',        fn: opponentNextBuyNormFeature,        v8: 0.5 },
+  { name: 'self_next_buy',                 fn: selfNextBuyFeature,                v8: 0.5 },
+];
+
+/**
+ * Build an evaluator from an arbitrary weight vector over TUNABLE_FEATURES.
+ * Used by the parallel tuner: workers reconstruct the candidate evaluator
+ * from a comma-separated weights string passed as the agent descriptor.
+ */
+export const evaluatorFromWeights = (weights: readonly number[]): Feature => {
+  const features: WeightedFeature[] = TUNABLE_FEATURES.map((f, i) => ({
+    name: f.name,
+    weight: weights[i] ?? 0,
+    fn: f.fn,
+  }));
+  return (state, player) => evaluateWith(features, state, player);
+};
+
 // `evaluate` always points at the current best evaluator. v7 (v6 with
 // opponent features normalized by opponent count) currently leads. v6
 // regressed in 4P (−5pp vs v3) because the summed opponent_*  features

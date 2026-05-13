@@ -14,7 +14,8 @@
     "play": "tsx src/cli/play.ts",
     "match": "tsx src/cli/play.ts match",
     "compare": "tsx src/cli/play.ts compare",
-    "firstmover": "tsx src/cli/measure-first-mover.ts"
+    "firstmover": "tsx src/cli/measure-first-mover.ts",
+    "tune": "tsx src/cli/tune.ts"
   },
   "dependencies": {
     "react": "^19.2.5",

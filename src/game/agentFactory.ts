@@ -16,6 +16,8 @@ import {
   evaluateV6,
   evaluateV7,
   evaluateV8,
+  evaluatorFromWeights,
+  TUNABLE_FEATURES,
   evaluateV3PlusConc,
   evaluateV3PlusEngine,
   evaluateV3PlusPressure,
@@ -75,6 +77,20 @@ export type AgentName = (typeof ALL_AGENT_NAMES)[number];
  * Returns null for unknown names so callers can surface a useful error.
  */
 export const makeAgent = (name: string, seed: number = 0): Agent | null => {
+  // Tunable agents: 'tunable:1.0,0.5,1.0,0.5,0.5,0.5,0.5'. Weights map to
+  // TUNABLE_FEATURES in evaluate.ts (positional). Used by the coordinate-
+  // descent tuner so worker threads can rebuild the candidate evaluator
+  // from a string descriptor.
+  if (name.startsWith('tunable:')) {
+    const weights = name
+      .slice('tunable:'.length)
+      .split(',')
+      .map((s) => Number(s));
+    if (weights.length !== TUNABLE_FEATURES.length || weights.some((w) => !Number.isFinite(w))) {
+      return null;
+    }
+    return greedyAgent(evaluatorFromWeights(weights));
+  }
   const rng = seededRng(seed);
   switch (name) {
     case 'random':
