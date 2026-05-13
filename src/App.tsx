@@ -3,13 +3,14 @@ import AssistantApp from './AssistantApp';
 import CardEntryApp from './CardEntryApp';
 import './App.css';
 
-type Mode = 'assistant' | 'entry';
+type Mode = 'assistant' | 'simulator' | 'entry';
 const STORAGE_KEY = 'splendor-shell-mode';
+const SIM_STORAGE_KEY = 'splendor-simulator-state-v1';
 
 const loadMode = (): Mode => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw === 'assistant' || raw === 'entry') return raw;
+    if (raw === 'assistant' || raw === 'simulator' || raw === 'entry') return raw;
   } catch {
     /* ignore */
   }
@@ -35,6 +36,13 @@ export default function App() {
         </button>
         <button
           type="button"
+          className={`shell-tab ${mode === 'simulator' ? 'active' : ''}`}
+          onClick={() => setMode('simulator')}
+        >
+          Simulator
+        </button>
+        <button
+          type="button"
           className={`shell-tab ${mode === 'entry' ? 'active' : ''}`}
           onClick={() => setMode('entry')}
         >
@@ -42,7 +50,13 @@ export default function App() {
         </button>
       </nav>
       <div className="shell-body">
-        {mode === 'assistant' ? <AssistantApp /> : <CardEntryApp />}
+        {mode === 'assistant' && <AssistantApp />}
+        {mode === 'simulator' && (
+          // Separate localStorage key so the sim runs on its own state and
+          // doesn't clobber the user's real game session.
+          <AssistantApp storageKey={SIM_STORAGE_KEY} key="simulator" />
+        )}
+        {mode === 'entry' && <CardEntryApp />}
       </div>
     </div>
   );

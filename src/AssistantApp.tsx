@@ -114,6 +114,19 @@ type AssistantState = {
    * face-up slot(s) to stay empty.
    */
   seenIds: string[];
+  /**
+   * Append-only log of every action applied in this game, with the
+   * pre-action engine state snapshot. Drives post-game analysis
+   * (replay + per-move MCTS re-scoring). Reset on New game / Setup /
+   * fresh sim. Not used during normal play.
+   */
+  gameLog: GameLogEntry[];
+};
+
+type GameLogEntry = {
+  action: Action;
+  /** Engine state immediately before the action was applied. */
+  snapshotBefore: GameState;
 };
 
 const defaultPlayerName = (idx: number): string => `P${idx}`;
@@ -132,11 +145,11 @@ const emptyFaceUp = (): FaceUpGrid => ({
   3: [null, null, null, null],
 });
 
-const STORAGE_KEY = 'splendor-assistant-state-v1';
+const DEFAULT_STORAGE_KEY = 'splendor-assistant-state-v1';
 
-const initialState = (): AssistantState => {
+const initialState = (storageKey: string): AssistantState => {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (raw !== null) {
       const parsed = JSON.parse(raw) as AssistantState;
       // Rehydrate cards/nobles by id so we have live references.
@@ -192,6 +205,9 @@ const initialState = (): AssistantState => {
           .filter((n): n is Noble => n !== undefined),
         players: rehydratedPlayers,
         seenIds,
+        gameLog: Array.isArray((parsed as Partial<AssistantState>).gameLog)
+          ? ((parsed as AssistantState).gameLog)
+          : [],
       };
     }
   } catch {
@@ -209,6 +225,7 @@ const initialState = (): AssistantState => {
     nobles: [],
     players: [emptyPlayer(), emptyPlayer()],
     seenIds: [],
+    gameLog: [],
   };
 };
 
@@ -245,6 +262,7 @@ const fromGameState = (gs: GameState, prev: AssistantState): AssistantState => (
   turnNumber: gs.turnNumber,
   mainPlayer: prev.mainPlayer,
   playerNames: prev.playerNames,
+  gameLog: prev.gameLog,
   // seenIds is owned by the assistant, not the engine — carry it forward.
   // Callers that need to extend it (e.g. onApply after a blind reserve)
   // override seenIds after spreading the fromGameState result.
@@ -674,8 +692,12 @@ const strategicNotes = (
 
 const MAX_HISTORY = 20;
 
-export default function AssistantApp() {
-  const [s, setS] = useState<AssistantState>(initialState);
+export default function AssistantApp({
+  storageKey = DEFAULT_STORAGE_KEY,
+}: {
+  storageKey?: string;
+} = {}) {
+  const [s, setS] = useState<AssistantState>(() => initialState(storageKey));
   const [history, setHistory] = useState<AssistantState[]>([]);
   const [thinking, setThinking] = useState(false);
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
@@ -697,6 +719,9 @@ export default function AssistantApp() {
     alternatives: Noble[];
     nextState: GameState;
     seenIds: string[];
+    /** Original action + pre-state, captured for the game log on commit. */
+    action: Action;
+    preState: GameState;
   } | null>(null);
   // Simulation: engine plays both sides. simRunning is the play/pause
   // state; simSpeedMs is the per-step delay (slider). Reset to defaults
@@ -719,8 +744,8 @@ export default function AssistantApp() {
   };
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-  }, [s]);
+    localStorage.setItem(storageKey, JSON.stringify(s));
+  }, [storageKey, s]);
 
   // ===== Setters helpers =====
 
@@ -804,6 +829,7 @@ export default function AssistantApp() {
       nobles: [],
       players: Array.from({ length: prev.numPlayers }, emptyPlayer),
       seenIds: [],
+      gameLog: [],
     }));
     setRecommendation(null);
     setErrors([]);
@@ -842,6 +868,7 @@ export default function AssistantApp() {
       nobles: fresh.nobles.slice(),
       players: Array.from({ length: numPlayers }, emptyPlayer),
       seenIds: Array.from(seen),
+      gameLog: [],
     };
   };
 
@@ -989,7 +1016,13 @@ export default function AssistantApp() {
     pre: GameState,
     post: GameState,
     seenIds: string[],
-  ): typeof pendingNobleChoice => {
+  ): {
+    claimerIdx: number;
+    autoAwarded: Noble;
+    alternatives: Noble[];
+    nextState: GameState;
+    seenIds: string[];
+  } | null => {
     const claimerIdx = pre.currentPlayer;
     const claimed = pre.nobles.find((n) => !post.nobles.some((x) => x.id === n.id));
     if (claimed === undefined) return null;
@@ -1008,10 +1041,15 @@ export default function AssistantApp() {
     };
   };
 
-  const commitApplied = (next: GameState, seenIds: string[]) => {
+  const commitApplied = (
+    next: GameState,
+    seenIds: string[],
+    logEntry: GameLogEntry,
+  ) => {
     setS((prev) => ({
       ...fromGameState(next, prev),
       seenIds,
+      gameLog: [...prev.gameLog, logEntry],
     }));
     setRecommendation(null);
     setErrors([]);
@@ -1025,10 +1063,12 @@ export default function AssistantApp() {
       const seen = collectSeen(next, s.seenIds);
       const choice = detectMultiNobleChoice(state, next, seen);
       if (choice !== null) {
-        setPendingNobleChoice(choice);
+        // Include the action+pre-state in the pending payload so we can
+        // log it once the user resolves their choice.
+        setPendingNobleChoice({ ...choice, action, preState: state });
         return; // wait for the user to resolve
       }
-      commitApplied(next, seen);
+      commitApplied(next, seen, { action, snapshotBefore: state });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setErrors([`Apply failed: ${message}`]);
@@ -1061,7 +1101,10 @@ export default function AssistantApp() {
         .concat([autoAwarded]);
       finalState = { ...nextState, players, nobles: boardNobles };
     }
-    commitApplied(finalState, seenIds);
+    commitApplied(finalState, seenIds, {
+      action: pendingNobleChoice.action,
+      snapshotBefore: pendingNobleChoice.preState,
+    });
     setPendingNobleChoice(null);
   };
 
@@ -1115,6 +1158,7 @@ export default function AssistantApp() {
       setS((prev) => ({
         ...fromGameState(next, prev),
         seenIds,
+        gameLog: [...prev.gameLog, { action: stats.bestAction, snapshotBefore: state }],
       }));
       setRecommendation({
         bestAction: stats.bestAction,
@@ -1209,7 +1253,15 @@ export default function AssistantApp() {
             players[reserverIdx] = { ...target, reserved };
           }
         }
-        return { ...form, players, seenIds: Array.from(seen) };
+        return {
+          ...form,
+          players,
+          seenIds: Array.from(seen),
+          gameLog: [
+            ...prev.gameLog,
+            { action: { type: 'reserve', source: { kind: 'deck', tier } }, snapshotBefore: state },
+          ],
+        };
       });
       setRecommendation(null);
       setErrors([]);
