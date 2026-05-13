@@ -2005,35 +2005,8 @@ function OpponentTurnPanel({
 
   return (
     <div className="opponent-panel">
-      <div className="opp-header">
-        <div>
-          <div className="opp-title">{oppName}'s turn — what did they do?</div>
-        </div>
-        <div className="opp-header-actions">
-          <button
-            type="button"
-            className="opp-suggest-btn"
-            onClick={onSuggest}
-            disabled={thinking}
-            title={`Run MCTS as if ${oppName} were choosing optimally`}
-          >
-            {thinking ? 'Thinking…' : `Suggest ${oppName}'s move`}
-          </button>
-          <button type="button" className="opp-skip-btn" onClick={onSkip}>
-            Skip {oppName} (they passed) →
-          </button>
-        </div>
-      </div>
-
-      {errors.length > 0 && (
-        <div className="issues">
-          {errors.map((e, i) => (
-            <div key={i}>⚠ {e}</div>
-          ))}
-        </div>
-      )}
-
-      <div className="opp-type-row">
+      <div className="opp-bar">
+        <span className="opp-bar-label">{oppName}'s move:</span>
         {(['take3', 'take2', 'reserve', 'buy'] as const).map((t) => (
           <button
             key={t}
@@ -2044,23 +2017,45 @@ function OpponentTurnPanel({
               setTake3Colors([]);
             }}
           >
-            {t === 'take3' ? 'Take 3 different'
-              : t === 'take2' ? 'Take 2 same'
-              : t === 'reserve' ? 'Reserve'
-              : 'Buy'}
+            {t === 'take3' ? 'Take 3' : t === 'take2' ? 'Take 2' : t === 'reserve' ? 'Reserve' : 'Buy'}
           </button>
         ))}
+        <span className="opp-bar-spacer" />
+        <button
+          type="button"
+          className="opp-suggest-btn"
+          onClick={onSuggest}
+          disabled={thinking}
+          title={`Run MCTS as if ${oppName} were choosing optimally`}
+        >
+          {thinking ? '…' : 'Suggest'}
+        </button>
+        <button
+          type="button"
+          className="opp-skip-btn"
+          onClick={onSkip}
+          title="Record that this player passed and move to the next turn"
+        >
+          Skip →
+        </button>
       </div>
 
-      <div className="opp-picker-area">
-        {actionType === null && (
-          <p className="picker-hint">Pick an action type above.</p>
-        )}
-        {actionType === 'take3' && renderTake3()}
-        {actionType === 'take2' && renderTake2()}
-        {actionType === 'reserve' && renderReserve()}
-        {actionType === 'buy' && renderBuy()}
-      </div>
+      {errors.length > 0 && (
+        <div className="issues">
+          {errors.map((e, i) => (
+            <div key={i}>⚠ {e}</div>
+          ))}
+        </div>
+      )}
+
+      {actionType !== null && (
+        <div className="opp-picker-area">
+          {actionType === 'take3' && renderTake3()}
+          {actionType === 'take2' && renderTake2()}
+          {actionType === 'reserve' && renderReserve()}
+          {actionType === 'buy' && renderBuy()}
+        </div>
+      )}
     </div>
   );
 }
