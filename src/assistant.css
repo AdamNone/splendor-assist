@@ -177,6 +177,35 @@
   font-style: italic;
   margin-bottom: 8px;
 }
+
+.game-over-banner {
+  padding: 12px 14px;
+  background: linear-gradient(155deg, #fef3c7 0%, #fde68a 100%);
+  border: 2px solid #f59e0b;
+  border-radius: 10px;
+  text-align: center;
+}
+.game-over-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #78350f;
+  letter-spacing: -0.01em;
+}
+.game-over-sub {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #92400e;
+}
+.game-ending-banner {
+  padding: 8px 12px;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
 .opp-type-btn {
   height: 26px;
   padding: 0 10px;

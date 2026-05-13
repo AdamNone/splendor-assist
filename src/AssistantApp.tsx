@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 // useMemo is used inside CardPickerModal below.
-import { apply } from './game/apply';
+import { apply, isTerminal, winner } from './game/apply';
 import { computePayment } from './game/gems';
 import { mctsBestActionWithStats } from './game/mcts';
 import type { MctsCandidate } from './game/mcts';
@@ -73,6 +73,17 @@ type FaceUpGrid = Record<Tier, Array<Card | null>>;
 type AssistantState = {
   numPlayers: 2 | 3 | 4;
   currentPlayer: PlayerIndex;
+  /**
+   * Seat that started this game. The end-of-round rule needs it: a Splendor
+   * game ends the turn currentPlayer wraps back to startingPlayer after
+   * someone has hit 15 prestige. Persisted so reloads keep tracking.
+   */
+  startingPlayer: PlayerIndex;
+  /**
+   * Number of plies played in this game (incremented by apply()). Combined
+   * with startingPlayer to detect end-of-round terminality.
+   */
+  turnNumber: number;
   /**
    * The player the assistant works for. Only this player gets
    * auto-recommendations. Defaults to P0; reconfigurable in the header.
@@ -159,6 +170,10 @@ const initialState = (): AssistantState => {
       return {
         ...parsed,
         mainPlayer: (parsed.mainPlayer ?? 0) as PlayerIndex,
+        startingPlayer: ((parsed as Partial<AssistantState>).startingPlayer ?? 0) as PlayerIndex,
+        turnNumber: typeof (parsed as Partial<AssistantState>).turnNumber === 'number'
+          ? (parsed as AssistantState).turnNumber
+          : 0,
         playerNames: Array.isArray(parsed.playerNames) ? parsed.playerNames : [],
         faceUp: rehydratedFaceUp,
         nobles: parsed.nobles
@@ -174,6 +189,8 @@ const initialState = (): AssistantState => {
   return {
     numPlayers: 2,
     currentPlayer: 0,
+    startingPlayer: 0,
+    turnNumber: 0,
     mainPlayer: 0,
     playerNames: [],
     gemSupply: { ...GEM_SUPPLY_DEFAULT[2] },
@@ -213,6 +230,8 @@ type Recommendation = {
 const fromGameState = (gs: GameState, prev: AssistantState): AssistantState => ({
   numPlayers: gs.numPlayers,
   currentPlayer: gs.currentPlayer,
+  startingPlayer: gs.startingPlayer,
+  turnNumber: gs.turnNumber,
   mainPlayer: prev.mainPlayer,
   playerNames: prev.playerNames,
   // seenIds is owned by the assistant, not the engine — carry it forward.
@@ -282,9 +301,9 @@ const buildGameState = (s: AssistantState): GameState => {
     nobles: s.nobles.slice(),
     players,
     currentPlayer: s.currentPlayer,
-    startingPlayer: 0,
+    startingPlayer: s.startingPlayer,
     pendingReveals: [],
-    turnNumber: 0,
+    turnNumber: s.turnNumber,
   };
 };
 
@@ -745,6 +764,8 @@ export default function AssistantApp() {
     setS((prev) => ({
       numPlayers: prev.numPlayers,
       currentPlayer: 0,
+      startingPlayer: 0,
+      turnNumber: 0,
       mainPlayer: prev.mainPlayer,
       playerNames: prev.playerNames.slice(),
       gemSupply: { ...GEM_SUPPLY_DEFAULT[prev.numPlayers] },
@@ -997,6 +1018,11 @@ export default function AssistantApp() {
       clearTimeout(debounceRef.current);
       debounceRef.current = null;
     }
+    // Game's done — no more recommendations.
+    if (gameOver) {
+      setRecommendation(null);
+      return;
+    }
     // Not the main player's turn — clear any stale recommendation.
     if (stateForEffect.currentPlayer !== stateForEffect.mainPlayer) {
       setRecommendation(null);
@@ -1036,6 +1062,23 @@ export default function AssistantApp() {
   // for the recommendation/alternatives display. Safe to use the current
   // assistantState because recommendation is cleared on any state change.
   const engineState = useMemo(() => buildGameState(s), [s]);
+
+  // End-of-round terminality: someone hit 15 prestige AND we've wrapped
+  // back to the starting seat (every player got an equal number of turns).
+  const gameOver = useMemo(() => isTerminal(engineState), [engineState]);
+  const gameWinner = useMemo(
+    () => (gameOver ? winner(engineState) : null),
+    [gameOver, engineState],
+  );
+  // "Game ending after this round" warning while at least one player is at
+  // 15+ but we haven't wrapped to startingPlayer yet.
+  const gameEndingSoon = useMemo(
+    () =>
+      !gameOver
+      && engineState.turnNumber > 0
+      && engineState.players.some((p) => p.prestige >= 15),
+    [gameOver, engineState],
+  );
 
   /**
    * Normalized "share of likely wins" per player.
@@ -1333,7 +1376,24 @@ export default function AssistantApp() {
       </section>
 
       <section className="card recommend">
-        {s.currentPlayer !== s.mainPlayer && (
+        {gameOver && gameWinner !== null && (
+          <div className="game-over-banner">
+            <div className="game-over-title">🏆 Game over</div>
+            <div className="game-over-sub">
+              <strong>{playerLabel(gameWinner)}</strong> wins with{' '}
+              {engineState.players[gameWinner]?.prestige ?? 0} prestige
+              {' '}({engineState.players[gameWinner]?.purchased.length ?? 0} cards).
+              Tiebreaker: fewest purchased cards.
+            </div>
+          </div>
+        )}
+        {gameEndingSoon && (
+          <div className="game-ending-banner">
+            ⚠ Someone hit 15 prestige — game ends after this round (back to{' '}
+            {playerLabel(s.startingPlayer)}).
+          </div>
+        )}
+        {!gameOver && s.currentPlayer !== s.mainPlayer && (
           <OpponentTurnPanel
             assistantState={s}
             playerLabel={playerLabel}
@@ -1343,7 +1403,7 @@ export default function AssistantApp() {
             errors={errors}
           />
         )}
-        {s.currentPlayer === s.mainPlayer && (
+        {!gameOver && s.currentPlayer === s.mainPlayer && (
           <>
             <div className="recommend-header">
               <strong>Your turn ({playerLabel(s.mainPlayer)})</strong>
