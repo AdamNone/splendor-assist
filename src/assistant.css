@@ -123,53 +123,191 @@ input[type='number']:focus {
   box-shadow: 0 0 0 3px rgba(31, 41, 55, 0.08);
 }
 
-.faceup-row {
-  display: grid;
-  grid-template-columns: 28px repeat(4, 1fr) 60px;
-  gap: 8px;
+.tier-row {
+  display: flex;
   align-items: center;
-  margin-bottom: 8px;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.faceup-tiles {
+  display: flex;
+  gap: 8px;
+  flex: 1;
 }
 .faceup-label {
   font-weight: 600;
   font-size: 13px;
   color: #4b5563;
+  min-width: 28px;
 }
 .faceup-count {
   font-size: 12px;
   color: #9ca3af;
-  text-align: right;
   font-variant-numeric: tabular-nums;
+  min-width: 36px;
+  text-align: right;
 }
-.faceup-slot {
+
+/* ===== Card art (used as slot + in picker) ===== */
+.card-art {
   position: relative;
+  width: 96px;
+  height: 132px;
+  border-radius: 8px;
+  padding: 8px;
+  box-sizing: border-box;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
-.faceup-slot input[type='text'] {
-  width: 100%;
-  height: 30px;
-  padding: 0 8px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  font-size: 12px;
-  font-family: ui-monospace, Menlo, monospace;
-  background: #fff;
+.card-art.small {
+  width: 84px;
+  height: 116px;
+  padding: 6px;
 }
-.faceup-slot input[type='text']:focus {
-  outline: none;
-  border-color: #1f2937;
-  box-shadow: 0 0 0 3px rgba(31, 41, 55, 0.08);
+.card-art.dark { color: rgba(255, 255, 255, 0.95); }
+.card-art.light { color: #1f2937; }
+.card-prestige {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
 }
-.faceup-slot.filled input[type='text'] {
-  background: #f9fafb;
+.card-art.small .card-prestige {
+  font-size: 18px;
+  top: 4px;
+  right: 6px;
 }
-.faceup-card-info {
+.card-cost {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.card-art.small .card-cost {
+  bottom: 6px;
+  left: 6px;
+  gap: 2px;
+}
+.card-cost-pip {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-top: 3px;
-  font-size: 11px;
-  color: #6b7280;
-  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.cost-pip-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+}
+.cost-pip-num { line-height: 1; }
+
+.card-slot {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.card-slot.empty {
+  width: 84px;
+  height: 116px;
+  border: 2px dashed #d1d5db;
+  border-radius: 8px;
+  color: #9ca3af;
+  font-size: 13px;
+  font-family: inherit;
+}
+.card-slot.empty:hover {
+  background: #f9fafb;
+  border-color: #9ca3af;
+  color: #4b5563;
+}
+.slot-placeholder {
+  font-weight: 500;
+}
+
+/* ===== Modal ===== */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  z-index: 50;
+}
+.modal {
+  background: #fff;
+  border-radius: 14px;
+  max-width: 920px;
+  width: 100%;
+  max-height: calc(100vh - 80px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.3);
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.modal-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.modal-clear,
+.modal-close {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.modal-close { padding: 0 10px; }
+.modal-clear:hover,
+.modal-close:hover { background: #f3f4f6; }
+.modal-body {
+  padding: 16px;
+  overflow-y: auto;
+}
+.picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 10px;
+}
+.picker-tile {
+  appearance: none;
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  padding: 2px;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+}
+.picker-tile:hover { background: #f3f4f6; }
+.picker-tile.selected {
+  border-color: #1f2937;
+  background: #f3f4f6;
 }
 
 .noble-grid {

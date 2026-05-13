@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+// useMemo is used inside CardPickerModal below.
 import { mctsBestAction } from './game/mcts';
 import { evaluateV3 } from './game/evaluate';
 import { ALL_CARDS, ALL_NOBLES } from './game/data';
@@ -171,8 +172,6 @@ export default function AssistantApp() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
   }, [s]);
 
-  const cardsById = useMemo(() => new Map(ALL_CARDS.map((c) => [c.id, c])), []);
-
   // ===== Setters helpers =====
 
   const setNumPlayers = (n: 2 | 3 | 4) => {
@@ -191,20 +190,6 @@ export default function AssistantApp() {
 
   const setSupplyGem = (c: GemColor, value: number) => {
     setS((prev) => ({ ...prev, gemSupply: { ...prev.gemSupply, [c]: Math.max(0, value) } }));
-  };
-
-  const setFaceUpId = (tier: Tier, slot: number, idText: string) => {
-    const trimmed = idText.trim().toUpperCase();
-    let card: Card | null = null;
-    if (trimmed.length > 0) {
-      const found = cardsById.get(trimmed);
-      if (found !== undefined && found.tier === tier) card = found;
-    }
-    setS((prev) => {
-      const grid = { ...prev.faceUp, [tier]: prev.faceUp[tier].slice() };
-      grid[tier][slot] = card;
-      return { ...prev, faceUp: grid };
-    });
   };
 
   const toggleNoble = (n: Noble) => {
@@ -374,21 +359,29 @@ export default function AssistantApp() {
       <section className="card">
         <h2>Face-up cards</h2>
         <p className="hint">
-          Type the card ID (e.g. <code>T1-007</code>) to fill a slot. Wrong tier or
-          unknown ID clears the slot.
+          Click a slot to pick from that tier's cards. The picker shows every
+          card visually (bonus color, prestige, cost) so you can match the
+          physical card at a glance.
         </p>
         {TIERS.slice().reverse().map((tier) => (
-          <div key={tier} className="faceup-row">
+          <div key={tier} className="faceup-row tier-row">
             <span className="faceup-label">T{tier}</span>
-            {s.faceUp[tier].map((card, i) => (
-              <FaceUpSlotInput
-                key={i}
-                tier={tier}
-                slot={i}
-                card={card}
-                onChange={(text) => setFaceUpId(tier, i, text)}
-              />
-            ))}
+            <div className="faceup-tiles">
+              {s.faceUp[tier].map((card, i) => (
+                <CardSlot
+                  key={i}
+                  tier={tier}
+                  card={card}
+                  onPick={(picked) => {
+                    setS((prev) => {
+                      const grid = { ...prev.faceUp, [tier]: prev.faceUp[tier].slice() };
+                      grid[tier][i] = picked;
+                      return { ...prev, faceUp: grid };
+                    });
+                  }}
+                />
+              ))}
+            </div>
             <span className="faceup-count">{currentVisibleFaceUp(tier)} / 4</span>
           </div>
         ))}
@@ -469,56 +462,136 @@ export default function AssistantApp() {
 // Sub-components
 // =============================================================================
 
-const describeCard = (c: Card): string => {
-  const cost = COLORS.filter((col) => c.cost[col] > 0)
-    .map((col) => `${c.cost[col]}${col[0]?.toUpperCase() ?? ''}`)
-    .join(' ');
-  const prestige = c.prestige > 0 ? `${c.prestige}p` : '0p';
-  return `${prestige}, +${c.bonus}${cost ? ` · ${cost}` : ''}`;
-};
-
 const describeNobleRequirement = (n: Noble): string =>
   COLORS.filter((c) => n.requirement[c] > 0)
     .map((c) => `${n.requirement[c]} ${c}`)
     .join(' + ');
 
-function FaceUpSlotInput({
+// =============================================================================
+// Card visuals — used both as face-up slots and in the picker grid.
+// =============================================================================
+
+function CardArt({ card, size = 'normal' }: { card: Card; size?: 'normal' | 'small' }) {
+  const bg = COLOR_HEX[card.bonus];
+  const dark = card.bonus !== 'white';
+  return (
+    <div
+      className={`card-art ${size === 'small' ? 'small' : ''} ${dark ? 'dark' : 'light'}`}
+      style={{ background: bg }}
+    >
+      <div className="card-prestige">{card.prestige > 0 ? card.prestige : ''}</div>
+      <div className="card-cost">
+        {COLORS.filter((c) => card.cost[c] > 0).map((c) => (
+          <div key={c} className="card-cost-pip">
+            <span className="cost-pip-swatch" style={{ background: COLOR_HEX[c] }} />
+            <span className="cost-pip-num">{card.cost[c]}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CardSlot({
   tier,
-  slot,
   card,
-  onChange,
+  onPick,
 }: {
   tier: Tier;
-  slot: number;
   card: Card | null;
-  onChange: (text: string) => void;
+  onPick: (card: Card | null) => void;
 }) {
-  const [text, setText] = useState(card?.id ?? '');
-  useEffect(() => {
-    setText(card?.id ?? '');
-  }, [card]);
+  const [open, setOpen] = useState(false);
   return (
-    <div className={`faceup-slot ${card ? 'filled' : ''}`}>
-      <input
-        type="text"
-        placeholder={`T${tier}-???`}
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value);
-          onChange(e.target.value);
-        }}
-        spellCheck={false}
-        aria-label={`face-up tier ${tier} slot ${slot}`}
-      />
-      {card && (
-        <div className="faceup-card-info">
-          <span
-            className="swatch inline"
-            style={{ background: COLOR_HEX[card.bonus] }}
-          />
-          <span>{describeCard(card)}</span>
-        </div>
+    <>
+      <button
+        type="button"
+        className={`card-slot ${card ? 'filled' : 'empty'}`}
+        onClick={() => setOpen(true)}
+        aria-label={`face-up tier ${tier} slot ${card ? card.id : 'empty'}`}
+      >
+        {card ? (
+          <CardArt card={card} size="small" />
+        ) : (
+          <span className="slot-placeholder">+ T{tier}</span>
+        )}
+      </button>
+      {open && (
+        <CardPickerModal
+          tier={tier}
+          selected={card}
+          onPick={(picked) => {
+            onPick(picked);
+            setOpen(false);
+          }}
+          onClose={() => setOpen(false)}
+        />
       )}
+    </>
+  );
+}
+
+function CardPickerModal({
+  tier,
+  selected,
+  onPick,
+  onClose,
+}: {
+  tier: Tier;
+  selected: Card | null;
+  onPick: (card: Card | null) => void;
+  onClose: () => void;
+}) {
+  const cards = useMemo(
+    () => ALL_CARDS.filter((c) => c.tier === tier),
+    [tier],
+  );
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-label={`Pick a tier ${tier} card`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="modal-header">
+          <h3>Tier {tier} cards</h3>
+          <div className="modal-actions">
+            {selected && (
+              <button type="button" className="modal-clear" onClick={() => onPick(null)}>
+                Clear slot
+              </button>
+            )}
+            <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
+              ✕
+            </button>
+          </div>
+        </div>
+        <div className="modal-body">
+          <div className="picker-grid">
+            {cards.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className={`picker-tile ${selected?.id === c.id ? 'selected' : ''}`}
+                onClick={() => onPick(c)}
+                title={c.id}
+              >
+                <CardArt card={c} />
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
