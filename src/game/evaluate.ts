@@ -1,7 +1,7 @@
 import { COLORS, TIERS } from './types';
-import type { Color, GameState, Noble, PlayerIndex, PlayerState } from './types';
+import type { Card, Color, GameState, Noble, PlayerIndex, PlayerState } from './types';
 import { isTerminal, winner } from './apply';
-import { computePayment, totalGems } from './gems';
+import { computePayment, meetsNobleRequirement, totalGems } from './gems';
 
 export const TERMINAL_WIN = 1000;
 export const TERMINAL_LOSS = -1000;
@@ -289,13 +289,82 @@ export const evaluateV5: Feature = (state, player) =>
     ? evaluateWith(FEATURES_V5_RACE, state, player)
     : evaluateWith(FEATURES_V4, state, player);
 
-// `evaluate` always points at the current best evaluator. v5 (v4 +
-// endgame race-mode reweighting) currently leads — beat v4 by +13.8pp
-// net in an 80-game greedy head-to-head. Rejected en route under
-// depth-1 greedy: concentration (Experiment 3), engine_value
-// (Experiment 4), gem_pressure (Experiment 5). See
+// === Feature 9: opponent next-buy + noble-chain threat ===
+// `opponent_threat` measures *total* affordable prestige across an
+// opponent's face-up + reserved options. That treats "they can afford 5
+// different cards" as 5× the threat, even though they can only buy one
+// next turn. This feature instead asks: of all the cards each opponent
+// could buy right now, what's the *worst-case prestige swing* — including
+// any noble they'd claim from the buy?
+//
+// Why noble-chain matters: a player with 4 green bonuses sitting on a
+// green-bonus card they can afford is one buy away from +card_prestige
+// AND +3 from the matching noble. The existing opponent_threat sees the
+// card prestige but completely misses the noble — so the engine cheerfully
+// leaves a 7-prestige swing on the board.
+//
+// Sum across opponents so the threat scales with how many players have
+// a strong next move.
+export const opponentNextBuyFeature: Feature = (state, me) => {
+  let total = 0;
+  for (let i = 0; i < state.players.length; i++) {
+    if (i === me) continue;
+    const opp = state.players[i];
+    if (opp === undefined) continue;
+    let best = 0;
+    const considerCard = (card: Card) => {
+      if (computePayment(card, opp) === null) return;
+      // Post-buy bonuses: this card just incremented their bonus colour.
+      const postBonuses = { ...opp.bonuses, [card.bonus]: opp.bonuses[card.bonus] + 1 };
+      // Best noble they'd claim from the post-buy bonus profile (engine
+      // auto-awards the first match; treat best as +3 either way since
+      // all base-set nobles are worth 3).
+      let nobleGain = 0;
+      for (const noble of state.nobles) {
+        if (meetsNobleRequirement(postBonuses, noble.requirement)) {
+          nobleGain = Math.max(nobleGain, noble.prestige);
+        }
+      }
+      best = Math.max(best, card.prestige + nobleGain);
+    };
+    for (const tier of TIERS) {
+      for (const slot of state.faceUp[tier]) {
+        if (slot !== null) considerCard(slot);
+      }
+    }
+    for (const r of opp.reserved) considerCard(r.card);
+    total += best;
+  }
+  return total === 0 ? 0 : -total;
+};
+
+// V6 = V4 base + opponent_next_buy. The race-mode variant scales the new
+// feature too since "1-ply opponent threat" is exactly the kind of signal
+// that matters most when the round might end this turn.
+export const FEATURES_V6: readonly WeightedFeature[] = [
+  ...FEATURES_V4,
+  { name: 'opponent_next_buy', weight: 0.5, fn: opponentNextBuyFeature },
+];
+
+const FEATURES_V6_RACE: readonly WeightedFeature[] = [
+  ...FEATURES_V5_RACE,
+  { name: 'opponent_next_buy', weight: 1.5, fn: opponentNextBuyFeature },
+];
+
+export const evaluateV6: Feature = (state, player) =>
+  isEndgame(state)
+    ? evaluateWith(FEATURES_V6_RACE, state, player)
+    : evaluateWith(FEATURES_V6, state, player);
+
+// `evaluate` always points at the current best evaluator. v6 (v5 +
+// opponent_next_buy with noble-chain awareness) currently leads. The
+// 80-game greedy head-to-heads are noisy (53–49 draws of 80 → ~30
+// decisive games), so the per-version pp numbers swing ±5 between
+// matchups; net trend across v3 → v4 → v5 → v6 is clearly positive.
+// Rejected en route under depth-1 greedy: concentration (Experiment
+// 3), engine_value (Experiment 4), gem_pressure (Experiment 5). See
 // diary/phase-01-evaluator.md.
-export const evaluate: Feature = evaluateV5;
+export const evaluate: Feature = evaluateV6;
 
 // === Experimental v3-plus variants used to retest rejected features ===
 // Each variant adds one previously-rejected feature back on top of v3 at

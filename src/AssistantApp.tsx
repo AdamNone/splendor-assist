@@ -5,7 +5,7 @@ import { legalActions } from './game/legalActions';
 import { computePayment, meetsNobleRequirement } from './game/gems';
 import { mctsBestActionWithStats } from './game/mcts';
 import type { MctsCandidate } from './game/mcts';
-import { evaluateV5 } from './game/evaluate';
+import { evaluateV6 } from './game/evaluate';
 import { ALL_CARDS, ALL_NOBLES } from './game/data';
 import { narrate } from './game/narrate';
 import { seededRng, initialState as freshGameState } from './game/setup';
@@ -985,7 +985,7 @@ export default function AssistantApp({
         if (entry === undefined) continue;
         const stats = mctsBestActionWithStats(entry.snapshotBefore, {
           iterations: 300,
-          evalFn: evaluateV5,
+          evalFn: evaluateV6,
           rng: seededRng((Date.now() ^ i) & 0xffff_ffff),
         });
         const bestWinShares = normalizeWinRates(stats.winRates);
@@ -1030,7 +1030,7 @@ export default function AssistantApp({
         }
         const stats = mctsBestActionWithStats(cf, {
           iterations: 300,
-          evalFn: evaluateV5,
+          evalFn: evaluateV6,
           rng: seededRng((Date.now() ^ (safety + 1000)) & 0xffff_ffff),
         });
         const ws = normalizeWinRates(stats.winRates);
@@ -1095,7 +1095,7 @@ export default function AssistantApp({
       const start = Date.now();
       const stats = mctsBestActionWithStats(state, {
         iterations,
-        evalFn: evaluateV5,
+        evalFn: evaluateV6,
         rng: seededRng(Date.now() & 0xffff_ffff),
       });
       const summary = describeAction(state, stats.bestAction);
@@ -1334,7 +1334,7 @@ export default function AssistantApp({
       const start = Date.now();
       const stats = mctsBestActionWithStats(state, {
         iterations: 300,
-        evalFn: evaluateV5,
+        evalFn: evaluateV6,
         rng: seededRng(Date.now() & 0xffff_ffff),
       });
       // apply() leaves emptied face-up slots as null + queues a reveal in
@@ -2252,7 +2252,7 @@ const CHART_PALETTE = ['#1f2937', '#dc2626', '#2563eb', '#15803d'];
  * the normalized share is uninformatively close to 1/N. The chart was
  * flat through the entire game until the very last ply.
  *
- * Why the evaluator + softmax? `evaluateV5` is a deterministic, smooth
+ * Why the evaluator + softmax? `evaluateV6` is a deterministic, smooth
  * function of the state (prestige + bonuses + noble proximity + opponent
  * threat). Softmax across players amplifies the leader's score relative
  * to the rest — mid-game (similar scores) stays near 1/N, late-game
@@ -2278,7 +2278,7 @@ const winLikelihoodAtState = (state: GameState, numPlayers: number): number[] =>
     return Array.from({ length: numPlayers }, (_, i) => (i === w ? 1 : 0));
   }
   const scores = Array.from({ length: numPlayers }, (_, i) =>
-    evaluateV5(state, i as PlayerIndex),
+    evaluateV6(state, i as PlayerIndex),
   );
   const exps = scores.map((s) => Math.exp(s / SOFTMAX_TEMPERATURE));
   const sum = exps.reduce((a, b) => a + b, 0);
