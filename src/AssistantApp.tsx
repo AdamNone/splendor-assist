@@ -1073,6 +1073,19 @@ export default function AssistantApp() {
     return null;
   }, [recommendation]);
 
+  // Mirror of highlightedFaceUp for "buy from your reserved pile" — same
+  // disambiguation problem when two reserves share a bonus color. Drives
+  // PlayerPanel to force-open its reserved drawer and pulse the matching
+  // entry.
+  const highlightedReserved: { playerIdx: number; index: number } | null = useMemo(() => {
+    if (recommendation === null) return null;
+    const a = recommendation.bestAction;
+    if (a.type === 'buy' && a.source.kind === 'reserve') {
+      return { playerIdx: recommendation.currentPlayer, index: a.source.index };
+    }
+    return null;
+  }, [recommendation]);
+
   // ===== Render =====
 
   const currentVisibleFaceUp = (tier: Tier) =>
@@ -1279,6 +1292,11 @@ export default function AssistantApp() {
             player={p}
             unavailableIds={usedCardIds}
             winRate={winShares?.[idx]}
+            highlightReservedIndex={
+              highlightedReserved !== null && highlightedReserved.playerIdx === idx
+                ? highlightedReserved.index
+                : undefined
+            }
             onName={(name) => setPlayerName(idx, name)}
             onReservedAdd={(card) =>
               setS((prev) => {
@@ -1694,6 +1712,7 @@ function PlayerPanel({
   player,
   unavailableIds,
   winRate,
+  highlightReservedIndex,
   onName,
   onReservedAdd,
   onReservedRemove,
@@ -1704,11 +1723,16 @@ function PlayerPanel({
   player: PlayerForm;
   unavailableIds: Set<string>;
   winRate: number | undefined;
+  highlightReservedIndex: number | undefined;
   onName: (name: string) => void;
   onReservedAdd: (card: Card) => void;
   onReservedRemove: (i: number) => void;
 }) {
   const [reservedOpen, setReservedOpen] = useState(false);
+  // When the engine highlights one of our reserved cards (buy-from-reserve
+  // recommendation), force the drawer open so the user can see which one
+  // is being suggested without an extra click.
+  const showReserved = reservedOpen || highlightReservedIndex !== undefined;
   const [addingReserved, setAddingReserved] = useState<Tier | null>(null);
   return (
     <div className={`player-panel ${isCurrent ? 'current' : ''}`}>
@@ -1778,12 +1802,15 @@ function PlayerPanel({
           className="reserved-toggle"
           onClick={() => setReservedOpen((o) => !o)}
         >
-          Reserved ({player.reserved.length}/3) {reservedOpen ? '▼' : '▶'}
+          Reserved ({player.reserved.length}/3) {showReserved ? '▼' : '▶'}
         </button>
-        {reservedOpen && (
+        {showReserved && (
           <div className="reserved-list">
             {player.reserved.map((r, i) => (
-              <div key={i} className="reserved-card">
+              <div
+                key={i}
+                className={`reserved-card ${highlightReservedIndex === i ? 'highlighted' : ''}`}
+              >
                 {r.blind === true ? (
                   <BlindCardArt tier={r.card.tier} size="small" />
                 ) : (

@@ -949,6 +949,13 @@ input[type='number']:focus {
 }
 .reserved-card {
   position: relative;
+  border-radius: 10px;
+}
+.reserved-card.highlighted {
+  outline: 3px solid #10b981;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.18);
+  animation: rec-pulse 1.6s ease-in-out infinite;
 }
 .reserved-remove {
   position: absolute;
