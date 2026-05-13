@@ -206,6 +206,63 @@ single-threaded. Spot check: `mcts-500ms` vs `v3` in parallel showed
 still wins +50 pp at the same 20-game seed. **Use iteration budgets
 when running parallel matches.**
 
+## Experiment 13 — ISMCTS with deck-shuffle determinization
+
+**Hypothesis.** Splendor's deck order is genuinely hidden. Plain MCTS
+plays through `applyTurn`, which deterministically reveals the top of
+the deck — so the agent's tree is shaped around a future the agent
+*shouldn't actually know*. Information Set MCTS samples a fresh
+determinization at each iteration (shuffles each tier's deck) so the
+tree's visit statistics average over deck-order uncertainty.
+
+**Implementation.** `determinize(state, rng)` in `src/game/mcts.ts`
+returns a new state with each tier's deck shuffled (Fisher-Yates).
+`MctsOptions.determinization = true` makes each MCTS iteration begin
+with a fresh shuffle. New CLI agents: `ismcts-200`, `ismcts-500`,
+`ismcts-1000`, `ismcts-500ms`, `ismcts-1s`.
+
+v1 scope: deck order only. Opponents' blind-reserved card identities
+are still visible (god view); proper handling sampling from the
+unknown pool is queued for v2.
+
+**Results (30 games per match, seed 7):**
+
+| Match                             | Result   | Δ (pp) |
+|---|---|---|
+| ismcts-500 vs mcts-500            | 12-16-2  | **−13.3 pp** |
+| ismcts-500 vs greedy(v3)          | 20-6-4   | **+46.7 pp** |
+
+ISMCTS is decisively weaker than plain MCTS at the same iteration
+budget in our tournament. It still crushes greedy.
+
+**Interpretation.** This result is expected once you look closely at
+the tournament setup. Both agents play through the engine's
+`applyTurn`, which always reveals the deterministic top of the deck.
+Plain MCTS's tree is shaped around exactly that future — it focuses
+all iterations on what's actually going to happen. ISMCTS averages
+over orderings that *won't* happen in this environment, so it
+"spends" some iterations on counterfactual futures and gets less
+signal per iteration about the real one.
+
+The asymmetry that matters for the assistant: **the tournament
+environment isn't representative of real play.** In a real Splendor
+game, the deck order is genuinely random at the moment of reveal —
+the agent's model of "what comes next" has to be probabilistic, not
+deterministic. The tournament can't easily measure this because both
+agents have a god-view engine state.
+
+**Decision.** Keep ISMCTS as an option. Plain MCTS remains the
+tournament champion. For real-world deployment the choice is:
+
+- Use plain MCTS when the engine's `applyTurn` reveals are
+  deterministic (CPU tournaments, internal A/B testing).
+- Use ISMCTS when reveals are genuinely random (real game play, or
+  if we add stochastic reveals to the simulator for evaluation).
+
+The 47 pp advantage over greedy confirms the determinization
+machinery isn't broken — it's correctly producing strong play, just
+not strictly more optimal than plain MCTS in this environment.
+
 ## What's left for Phase 3
 
 - **Better rollouts.** Random rollouts are weak — a greedy rollout

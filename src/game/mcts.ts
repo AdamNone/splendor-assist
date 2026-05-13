@@ -22,6 +22,14 @@ export type MctsOptions = {
   c?: number;
   /** How rollouts pick actions. 'heuristic' is the new (Phase 3 v2) default. */
   rolloutPolicy?: RolloutPolicy;
+  /**
+   * ISMCTS-style deck shuffling. When true, each iteration begins by
+   * shuffling every tier's deck so the agent reasons about deck order as
+   * unknown rather than relying on the deterministic top-of-deck reveals
+   * the engine produces. v1 handles deck order only; opponents' blind
+   * reserves are still visible (Phase 3 v2 will tackle those).
+   */
+  determinization?: boolean;
 };
 
 /**
@@ -225,6 +233,41 @@ const backpropagate = (leaf: Node, reward: number[]): void => {
 const DEFAULT_C = Math.sqrt(2);
 const DEFAULT_ROLLOUT_DEPTH = 20;
 
+const shuffledArray = <T>(arr: readonly T[], rng: Rng): T[] => {
+  const out = arr.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const a = out[i];
+    const b = out[j];
+    if (a === undefined || b === undefined) continue;
+    out[i] = b;
+    out[j] = a;
+  }
+  return out;
+};
+
+/**
+ * Sample a ground-truth state consistent with what `me` can observe in the
+ * given state. v1: shuffles the order of cards remaining in each tier's
+ * deck. The visible parts of the state — gem supply, face-up cards,
+ * prestige, nobles, every player's reserved-card count — are unchanged.
+ *
+ * NOT yet handled (Phase 3 v2): replacing opponents' blind-reserved card
+ * identities with samples from the unknown pool. That fix matters more
+ * when the agent's tree explicitly considers "what could the opponent
+ * buy from their reserve?"; for the deck-reveal case our current
+ * heuristic-rollout MCTS only depends on draw order, which this version
+ * randomises correctly.
+ */
+export const determinize = (state: GameState, rng: Rng): GameState => ({
+  ...state,
+  decks: {
+    1: shuffledArray(state.decks[1], rng),
+    2: shuffledArray(state.decks[2], rng),
+    3: shuffledArray(state.decks[3], rng),
+  },
+});
+
 /**
  * Run MCTS from `rootState` for the requested budget (iterations or wall
  * time) and return the most-visited root child's action.
@@ -242,6 +285,7 @@ export const mctsBestAction = (
   const c = options.c ?? DEFAULT_C;
   const rolloutDepth = options.rolloutDepth ?? DEFAULT_ROLLOUT_DEPTH;
   const rolloutPolicy = options.rolloutPolicy ?? 'heuristic';
+  const determinization = options.determinization ?? false;
   const root = makeNode(rootState, null, null);
   if (root.untriedActions.length === 0) {
     throw new Error('mctsBestAction: no legal actions at root');
@@ -254,7 +298,11 @@ export const mctsBestAction = (
     if (deadline !== undefined && Date.now() >= deadline) break;
 
     let node = root;
-    let state = rootState;
+    // ISMCTS: each iteration starts from a fresh determinization of the
+    // hidden state so the tree's visit statistics average over deck-order
+    // uncertainty instead of overfitting to the engine's deterministic
+    // top-of-deck reveal.
+    let state = determinization ? determinize(rootState, rng) : rootState;
 
     // Selection + Expansion.
     while (true) {

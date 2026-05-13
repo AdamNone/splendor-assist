@@ -79,15 +79,23 @@ export const iterativeAgent = (timeMs: number, evalFn: Evaluator = evaluate): Ag
  * MCTS with UCB1 selection and depth-capped rollouts.
  * `iterations` controls the budget; `evalFn` evaluates rollout endpoints
  * that aren't terminal; `rng` controls rollout choices; `policy` selects
- * between heuristic (Splendor-priority) and pure random rollouts.
+ * between heuristic (Splendor-priority) and pure random rollouts;
+ * `determinization` toggles the ISMCTS-style deck-shuffle per iteration.
  */
 export const mctsAgent = (
   iterations: number,
   evalFn: Evaluator = evaluate,
   rng: Rng = Math.random,
   policy: RolloutPolicy = 'heuristic',
+  determinization: boolean = false,
 ): Agent => (state) =>
-  mctsBestAction(state, { iterations, evalFn, rng, rolloutPolicy: policy });
+  mctsBestAction(state, {
+    iterations,
+    evalFn,
+    rng,
+    rolloutPolicy: policy,
+    determinization,
+  });
 
 /** Same as mctsAgent but with a wall-clock budget instead of iteration count. */
 export const mctsTimeAgent = (
@@ -95,5 +103,12 @@ export const mctsTimeAgent = (
   evalFn: Evaluator = evaluate,
   rng: Rng = Math.random,
   policy: RolloutPolicy = 'heuristic',
+  determinization: boolean = false,
 ): Agent => (state) =>
-  mctsBestAction(state, { timeMs, evalFn, rng, rolloutPolicy: policy });
+  mctsBestAction(state, {
+    timeMs,
+    evalFn,
+    rng,
+    rolloutPolicy: policy,
+    determinization,
+  });

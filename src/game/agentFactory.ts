@@ -49,6 +49,11 @@ export const ALL_AGENT_NAMES = [
   'mcts-3s',
   'mcts-1s-rand',
   'mcts-500ms-rand',
+  'ismcts-200',
+  'ismcts-500',
+  'ismcts-1000',
+  'ismcts-500ms',
+  'ismcts-1s',
 ] as const;
 
 export type AgentName = (typeof ALL_AGENT_NAMES)[number];
@@ -106,6 +111,17 @@ export const makeAgent = (name: string, seed: number = 0): Agent | null => {
       return mctsTimeAgent(1000, evaluateV3, rng, 'random');
     case 'mcts-500ms-rand':
       return mctsTimeAgent(500, evaluateV3, rng, 'random');
+    // ISMCTS variants — deck-shuffle determinization per iteration.
+    case 'ismcts-200':
+      return mctsAgent(200, evaluateV3, rng, 'heuristic', true);
+    case 'ismcts-500':
+      return mctsAgent(500, evaluateV3, rng, 'heuristic', true);
+    case 'ismcts-1000':
+      return mctsAgent(1000, evaluateV3, rng, 'heuristic', true);
+    case 'ismcts-500ms':
+      return mctsTimeAgent(500, evaluateV3, rng, 'heuristic', true);
+    case 'ismcts-1s':
+      return mctsTimeAgent(1000, evaluateV3, rng, 'heuristic', true);
     default:
       return null;
   }
