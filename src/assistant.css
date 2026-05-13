@@ -939,6 +939,31 @@ input[type='number']:focus {
   color: #064e3b;
 }
 
+.why {
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+.why-title {
+  font-size: 11px;
+  color: #065f46;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.why ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: #064e3b;
+  line-height: 1.55;
+}
+.why li {
+  margin: 2px 0;
+}
+
 .alternatives {
   background: rgba(255, 255, 255, 0.6);
   border: 1px solid #bbf7d0;

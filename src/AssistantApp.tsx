@@ -143,6 +143,8 @@ type Alternative = {
 type Recommendation = {
   bestAction: Action;
   summary: string;
+  /** Plain-language consequences of applying `bestAction`. */
+  explanation: string[];
   winRates: number[];
   currentPlayer: number;
   rootVisits: number;
@@ -218,6 +220,149 @@ const buildGameState = (s: AssistantState): GameState => {
 
 const describeAction = (state: GameState, action: Action): string => {
   return narrate(state, action);
+};
+
+const nobleDescription = (n: Noble): string =>
+  COLORS.filter((c) => n.requirement[c] > 0)
+    .map((c) => `${n.requirement[c]} ${c}`)
+    .join(' + ');
+
+/**
+ * Concrete, plain-language consequences of `action` going from `before` to
+ * `after`. Returns one short sentence per consequence; nothing is added for
+ * a dimension that didn't change. Designed for the "Why this move" panel —
+ * not a feature-by-feature breakdown of the evaluator (those numbers don't
+ * mean anything to a human at the table), just "what actually happens."
+ */
+const explainAction = (
+  before: GameState,
+  after: GameState,
+  me: PlayerIndex,
+  action: Action,
+  playerLabel: (idx: number) => string,
+): string[] => {
+  const lines: string[] = [];
+  const beforeMe = before.players[me];
+  const afterMe = after.players[me];
+  if (beforeMe === undefined || afterMe === undefined) return lines;
+
+  // 1. Direct prestige delta from the action (excludes noble's +3, which is
+  //    surfaced separately below for clarity).
+  const claimedNobles = before.nobles.filter(
+    (n) => !after.nobles.some((x) => x.id === n.id),
+  );
+  const noblePrestige = claimedNobles.reduce((s, n) => s + n.prestige, 0);
+  const directPrestigeDelta = (afterMe.prestige - beforeMe.prestige) - noblePrestige;
+  if (directPrestigeDelta > 0) {
+    lines.push(`+${directPrestigeDelta} prestige (now ${afterMe.prestige - noblePrestige}).`);
+  }
+
+  // 2. New bonus(es). Splendor caps a single action at +1 bonus, but the
+  //    loop handles weirder cases without special-casing.
+  for (const c of COLORS) {
+    const dB = afterMe.bonuses[c] - beforeMe.bonuses[c];
+    if (dB > 0) {
+      lines.push(`+${dB} ${c} bonus (now ${afterMe.bonuses[c]}).`);
+    }
+  }
+
+  // 3. Noble claim.
+  for (const n of claimedNobles) {
+    lines.push(`Claims the ${nobleDescription(n)} noble (+${n.prestige} prestige).`);
+  }
+
+  // 4. Noble proximity gain on still-unclaimed nobles.
+  for (const noble of after.nobles) {
+    const beforeProg = COLORS.reduce(
+      (s, c) => s + Math.min(beforeMe.bonuses[c], noble.requirement[c]),
+      0,
+    );
+    const afterProg = COLORS.reduce(
+      (s, c) => s + Math.min(afterMe.bonuses[c], noble.requirement[c]),
+      0,
+    );
+    if (afterProg > beforeProg) {
+      const maxNeed = COLORS.reduce((s, c) => s + noble.requirement[c], 0);
+      lines.push(
+        `Closer to the ${nobleDescription(noble)} noble (${afterProg}/${maxNeed} bonuses).`,
+      );
+    }
+  }
+
+  // 5. Newly affordable face-up cards (mostly useful for take/reserve where
+  //    the immediate effect is buying power, not a card itself).
+  const beforeAffordable = new Set<string>();
+  const afterAffordable = new Set<string>();
+  for (const tier of TIERS) {
+    for (const slot of before.faceUp[tier]) {
+      if (slot === null) continue;
+      if (computePayment(slot, beforeMe) !== null) beforeAffordable.add(slot.id);
+    }
+    for (const slot of after.faceUp[tier]) {
+      if (slot === null) continue;
+      if (computePayment(slot, afterMe) !== null) afterAffordable.add(slot.id);
+    }
+  }
+  let bestNew: Card | null = null;
+  for (const tier of TIERS) {
+    for (const slot of after.faceUp[tier]) {
+      if (slot === null) continue;
+      if (beforeAffordable.has(slot.id)) continue;
+      if (!afterAffordable.has(slot.id)) continue;
+      if (bestNew === null || slot.prestige > bestNew.prestige) bestNew = slot;
+    }
+  }
+  if (bestNew !== null && bestNew.prestige > 0) {
+    lines.push(
+      `Now able to afford a T${bestNew.tier} card (${bestNew.prestige}p, +${bestNew.bonus}).`,
+    );
+  }
+
+  // 6. Denied opponent buys. Compares which face-up cards opponents could
+  //    afford in the before state but are gone (this player's buy/reserve
+  //    removed them) in the after state.
+  for (let i = 0; i < before.players.length; i++) {
+    if (i === me) continue;
+    const beforeOpp = before.players[i];
+    if (beforeOpp === undefined) continue;
+    let deniedPrestige = 0;
+    for (const tier of TIERS) {
+      for (let slot = 0; slot < before.faceUp[tier].length; slot++) {
+        const card = before.faceUp[tier][slot];
+        if (card === null || card === undefined) continue;
+        const stillThere = after.faceUp[tier][slot]?.id === card.id;
+        if (stillThere) continue;
+        if (computePayment(card, beforeOpp) !== null) {
+          deniedPrestige += card.prestige;
+        }
+      }
+    }
+    if (deniedPrestige > 0) {
+      lines.push(
+        `Denies ${playerLabel(i)} a face-up buy worth ${deniedPrestige} prestige.`,
+      );
+    }
+  }
+
+  // 7. Reserve-specific notes (the gold and the held card aren't covered
+  //    above because reserves don't directly change bonuses/prestige).
+  if (action.type === 'reserve') {
+    if (action.source.kind === 'faceUp') {
+      const card = before.faceUp[action.source.tier][action.source.slot];
+      if (card !== null && card !== undefined) {
+        lines.push(
+          `Holds the T${card.tier} card (${card.prestige}p, +${card.bonus}) in reserve for later.`,
+        );
+      }
+    } else {
+      lines.push(`Holds an unknown T${action.source.tier} card in reserve (drawn blind).`);
+    }
+    if (afterMe.gems.gold > beforeMe.gems.gold) {
+      lines.push(`+1 gold wildcard (substitutes for any color when buying).`);
+    }
+  }
+
+  return lines;
 };
 
 // =============================================================================
@@ -403,6 +548,23 @@ export default function AssistantApp() {
         rng: seededRng(Date.now() & 0xffff_ffff),
       });
       const summary = describeAction(state, stats.bestAction);
+      // Compute the explanation by simulating the recommended action one ply
+      // forward and diffing the before/after states. Wrapped in try/catch
+      // because `apply` could theoretically throw if state drifted between
+      // legalActions and now; in that case we just skip the panel.
+      let explanation: string[] = [];
+      try {
+        const afterBest = apply(state, stats.bestAction);
+        explanation = explainAction(
+          state,
+          afterBest,
+          state.currentPlayer,
+          stats.bestAction,
+          playerLabel,
+        );
+      } catch {
+        /* leave explanation empty */
+      }
       const alternatives: Alternative[] = stats.candidates
         .slice(1, 5)
         .map((c: MctsCandidate) => ({
@@ -414,6 +576,7 @@ export default function AssistantApp() {
       setRecommendation({
         bestAction: stats.bestAction,
         summary,
+        explanation,
         winRates: stats.winRates,
         currentPlayer: state.currentPlayer,
         rootVisits: stats.rootVisits,
@@ -732,6 +895,17 @@ export default function AssistantApp() {
                   </div>
                   <span className="rec-option-cta">Click to apply →</span>
                 </button>
+
+                {recommendation.explanation.length > 0 && (
+                  <div className="why">
+                    <div className="why-title">Why this move</div>
+                    <ul>
+                      {recommendation.explanation.map((line, i) => (
+                        <li key={i}>{namifyNarration(line)}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 <div className="winrates">
                   <div className="winrates-title">
