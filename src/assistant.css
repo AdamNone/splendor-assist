@@ -372,6 +372,16 @@
   color: #92400e;
   margin-top: 4px;
 }
+.chart-cf-title {
+  font-size: 11px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  margin: 10px 0 4px;
+  padding-top: 8px;
+  border-top: 1px dashed #e5e7eb;
+}
 
 .game-over-banner {
   padding: 12px 14px;

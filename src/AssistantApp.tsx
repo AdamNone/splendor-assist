@@ -2054,20 +2054,17 @@ export default function AssistantApp({
               )}
             </span>
           </h2>
-          <HistoryChart
-            yLabel="Win share over time"
-            yMax={1}
+          <StackedAreaChart
             playerLabels={s.players
               .slice(0, s.numPlayers)
               .map((_, i) => playerLabel(i))}
             series={s.players
               .slice(0, s.numPlayers)
               .map((_, pIdx) =>
-                s.gameLog.map((e) =>
-                  e.winShares !== null ? (e.winShares[pIdx] ?? 0) : NaN,
-                ).filter((v) => !Number.isNaN(v)),
+                s.gameLog
+                  .filter((e) => e.winShares !== null)
+                  .map((e) => e.winShares![pIdx] ?? 0),
               )}
-            format={(v) => `${(v * 100).toFixed(0)}%`}
           />
           <HistoryChart
             yLabel="Prestige over time"
@@ -2143,14 +2140,14 @@ export default function AssistantApp({
               </div>
 
               {/* Counterfactual chart: engine-vs-engine from the start */}
-              <HistoryChart
-                yLabel="Counterfactual win share (engine vs engine from turn 1)"
-                yMax={1}
+              <div className="chart-cf-title">
+                Counterfactual (engine vs engine from turn 1)
+              </div>
+              <StackedAreaChart
                 playerLabels={s.players
                   .slice(0, s.numPlayers)
                   .map((_, i) => playerLabel(i))}
                 series={analysis.counterfactual.winShares}
-                format={(v) => `${(v * 100).toFixed(0)}%`}
               />
               <HistoryChart
                 yLabel="Counterfactual prestige (engine vs engine from turn 1)"
@@ -2205,6 +2202,114 @@ function BlindCardArt({ tier, size = 'normal' }: { tier: Tier; size?: 'normal' |
 // =============================================================================
 
 const CHART_PALETTE = ['#1f2937', '#dc2626', '#2563eb', '#15803d'];
+
+/**
+ * Stacked-area chart used for win-share (which always sums to 1.0 per
+ * turn). A line chart of 4 players hovering near 25% looks dead flat;
+ * the stacked area visualises *relative* dominance — whoever has more
+ * vertical band at a given turn is the leader.
+ */
+function StackedAreaChart({
+  series,
+  playerLabels,
+  height = 110,
+  format = (v) => `${(v * 100).toFixed(0)}%`,
+}: {
+  series: number[][]; // [player][turn], each column sums to ~1
+  playerLabels: string[];
+  height?: number;
+  format?: (v: number) => string;
+}) {
+  const numPlayers = series.length;
+  const numTurns = series[0]?.length ?? 0;
+  if (numTurns < 2) {
+    return <div className="chart-empty">Win share: need at least 2 turns to plot</div>;
+  }
+  const padding = { top: 8, right: 8, bottom: 16, left: 28 };
+  const widthInner = Math.max(160, numTurns * 14);
+  const heightInner = height - padding.top - padding.bottom;
+  const total = padding.left + widthInner + padding.right;
+  const xAt = (i: number) =>
+    padding.left + (numTurns === 1 ? widthInner / 2 : (i / (numTurns - 1)) * widthInner);
+  const yAt = (v: number) =>
+    padding.top + heightInner * (1 - Math.max(0, Math.min(1, v)));
+  // Cumulative stacks per turn so that band p sits between cumulative[p-1]
+  // and cumulative[p] (clamped to 1 in case sums drift slightly).
+  const cumulative: number[][] = [];
+  for (let p = 0; p < numPlayers; p++) {
+    cumulative.push([]);
+    for (let t = 0; t < numTurns; t++) {
+      const prev = p > 0 ? cumulative[p - 1]![t] ?? 0 : 0;
+      const v = series[p]?.[t] ?? 0;
+      cumulative[p]!.push(Math.min(1, prev + v));
+    }
+  }
+  const lastValues = series.map((s) => s[s.length - 1] ?? 0);
+  return (
+    <div className="chart">
+      <div className="chart-header">
+        <div className="chart-title">Win share over time</div>
+        <div className="chart-legend">
+          {playerLabels.map((name, i) => (
+            <span key={i} className="chart-legend-item">
+              <span
+                className="chart-legend-dot"
+                style={{ background: CHART_PALETTE[i % CHART_PALETTE.length] }}
+              />
+              {name} <span className="chart-legend-val">{format(lastValues[i] ?? 0)}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+      <svg width={total} height={height} className="chart-svg">
+        <line
+          x1={padding.left} y1={padding.top}
+          x2={padding.left} y2={height - padding.bottom}
+          stroke="#e5e7eb"
+        />
+        <line
+          x1={padding.left} y1={height - padding.bottom}
+          x2={total - padding.right} y2={height - padding.bottom}
+          stroke="#e5e7eb"
+        />
+        <text x={padding.left - 4} y={padding.top + 4} textAnchor="end" className="chart-tick">
+          100%
+        </text>
+        <text
+          x={padding.left - 4} y={height - padding.bottom}
+          textAnchor="end" className="chart-tick"
+        >
+          0
+        </text>
+        {Array.from({ length: numPlayers }, (_, p) => {
+          // Build a closed band: top edge (cumulative[p]) left→right, then
+          // bottom edge (cumulative[p-1] or 0) right→left.
+          const top = cumulative[p]!;
+          const below = p > 0 ? cumulative[p - 1]! : new Array(numTurns).fill(0);
+          const topPath = top
+            .map((v, i) => `${i === 0 ? 'M' : 'L'} ${xAt(i)} ${yAt(v)}`)
+            .join(' ');
+          const bottomPath = below
+            .map((_, i) => {
+              const idx = numTurns - 1 - i;
+              return `L ${xAt(idx)} ${yAt(below[idx] ?? 0)}`;
+            })
+            .join(' ');
+          return (
+            <path
+              key={p}
+              d={`${topPath} ${bottomPath} Z`}
+              fill={CHART_PALETTE[p % CHART_PALETTE.length]}
+              fillOpacity={0.82}
+              stroke={CHART_PALETTE[p % CHART_PALETTE.length]}
+              strokeWidth={0.5}
+            />
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
 
 function HistoryChart({
   series,
