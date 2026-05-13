@@ -226,6 +226,37 @@ export const FEATURES_V3: readonly WeightedFeature[] = [
 export const evaluateV3: Feature = (state, player) =>
   evaluateWith(FEATURES_V3, state, player);
 
+// === Feature 8: opponent noble proximity ===
+// Mirror of `nobleProximityFeature` but summed across opponents and negated.
+// Without this, an opponent who's 4 bonuses deep on a noble is invisible to
+// `me` until the noble is actually claimed; with it, the engine treats
+// "opponent about to grab +3 prestige for free" as a meaningful threat,
+// and prefers buys that beat them to the bonuses that would unlock the
+// noble (or claim the noble themselves first).
+export const opponentNobleProximityFeature: Feature = (state, me) => {
+  let threat = 0;
+  for (let i = 0; i < state.players.length; i++) {
+    if (i === me) continue;
+    const opp = state.players[i];
+    if (opp === undefined) continue;
+    for (const noble of state.nobles) {
+      threat += nobleProximityForOne(opp, noble);
+    }
+  }
+  return threat === 0 ? 0 : -threat;
+};
+
+// v3 + opponent_noble_proximity. Weight 0.5 to match opponent_threat: noble
+// progress is *future* prestige (not yet claimed), so we don't want it to
+// outweigh actual prestige + bonuses on hand.
+export const FEATURES_V4: readonly WeightedFeature[] = [
+  ...FEATURES_V3,
+  { name: 'opponent_noble_proximity', weight: 0.5, fn: opponentNobleProximityFeature },
+];
+
+export const evaluateV4: Feature = (state, player) =>
+  evaluateWith(FEATURES_V4, state, player);
+
 // `evaluate` always points at the current best evaluator. v3 (with
 // opponent_threat) currently leads. Rejected en route under depth-1
 // greedy: concentration (Experiment 3), engine_value (Experiment 4),
