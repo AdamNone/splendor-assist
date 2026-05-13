@@ -2055,15 +2055,23 @@ export default function AssistantApp({
             </span>
           </h2>
           <StackedAreaChart
+            title="Prestige share over time"
             playerLabels={s.players
               .slice(0, s.numPlayers)
               .map((_, i) => playerLabel(i))}
             series={s.players
               .slice(0, s.numPlayers)
               .map((_, pIdx) =>
-                s.gameLog
-                  .filter((e) => e.winShares !== null)
-                  .map((e) => e.winShares![pIdx] ?? 0),
+                s.gameLog.map((e) => {
+                  // Share = this player's prestige / sum of everyone's
+                  // prestige. When nobody has scored yet, fall back to an
+                  // even split so the chart reads "no leader yet" rather
+                  // than dividing by zero.
+                  const sum = e.prestigesAfter.reduce((a, b) => a + b, 0);
+                  return sum === 0
+                    ? 1 / s.numPlayers
+                    : (e.prestigesAfter[pIdx] ?? 0) / sum;
+                }),
               )}
           />
           <HistoryChart
@@ -2144,10 +2152,19 @@ export default function AssistantApp({
                 Counterfactual (engine vs engine from turn 1)
               </div>
               <StackedAreaChart
+                title="Counterfactual prestige share"
                 playerLabels={s.players
                   .slice(0, s.numPlayers)
                   .map((_, i) => playerLabel(i))}
-                series={analysis.counterfactual.winShares}
+                series={analysis.counterfactual.prestiges.map((row) =>
+                  row.map((_, t) => {
+                    const sum = analysis.counterfactual.prestiges
+                      .reduce((a, r) => a + (r[t] ?? 0), 0);
+                    return sum === 0
+                      ? 1 / s.numPlayers
+                      : (row[t] ?? 0) / sum;
+                  }),
+                )}
               />
               <HistoryChart
                 yLabel="Counterfactual prestige (engine vs engine from turn 1)"
@@ -2210,20 +2227,24 @@ const CHART_PALETTE = ['#1f2937', '#dc2626', '#2563eb', '#15803d'];
  * vertical band at a given turn is the leader.
  */
 function StackedAreaChart({
+  title,
   series,
   playerLabels,
   height = 110,
   format = (v) => `${(v * 100).toFixed(0)}%`,
+  emptyMessage = 'need at least 2 turns to plot',
 }: {
+  title: string;
   series: number[][]; // [player][turn], each column sums to ~1
   playerLabels: string[];
   height?: number;
   format?: (v: number) => string;
+  emptyMessage?: string;
 }) {
   const numPlayers = series.length;
   const numTurns = series[0]?.length ?? 0;
   if (numTurns < 2) {
-    return <div className="chart-empty">Win share: need at least 2 turns to plot</div>;
+    return <div className="chart-empty">{title}: {emptyMessage}</div>;
   }
   const padding = { top: 8, right: 8, bottom: 16, left: 28 };
   const widthInner = Math.max(160, numTurns * 14);
@@ -2248,7 +2269,7 @@ function StackedAreaChart({
   return (
     <div className="chart">
       <div className="chart-header">
-        <div className="chart-title">Win share over time</div>
+        <div className="chart-title">{title}</div>
         <div className="chart-legend">
           {playerLabels.map((name, i) => (
             <span key={i} className="chart-legend-item">
