@@ -1733,6 +1733,9 @@ function PlayerPanel({
   // recommendation), force the drawer open so the user can see which one
   // is being suggested without an extra click.
   const showReserved = reservedOpen || highlightReservedIndex !== undefined;
+  // Running total of gems incl. gold. Hits GEM_HAND_LIMIT (10) → can't take
+  // any more gems this turn; surface as a warning in the header.
+  const gemTotal = GEM_COLORS.reduce((s, c) => s + player.gems[c], 0);
   const [addingReserved, setAddingReserved] = useState<Tier | null>(null);
   return (
     <div className={`player-panel ${isCurrent ? 'current' : ''}`}>
@@ -1772,6 +1775,16 @@ function PlayerPanel({
         ))}
         <span className="stats-sep" />
         <span className="stat-label" title="Gems">G</span>
+        <span
+          className={`gem-total ${gemTotal >= GEM_HAND_LIMIT ? 'at-cap' : ''}`}
+          title={
+            gemTotal >= GEM_HAND_LIMIT
+              ? `Hand at ${GEM_HAND_LIMIT}-gem cap — can't take more gems this turn`
+              : `${gemTotal}/${GEM_HAND_LIMIT} gems`
+          }
+        >
+          {gemTotal}/{GEM_HAND_LIMIT}
+        </span>
         {GEM_COLORS.map((c) => (
           <div
             key={`g-${c}`}
