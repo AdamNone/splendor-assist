@@ -769,6 +769,7 @@ export default function AssistantApp({
     winnerIdx: number;
     winShares: number[][]; // [player][turn]
     prestiges: number[][]; // [player][turn]
+    winLikelihoods: number[][]; // [player][turn], from evaluator softmax
   };
   type GameAnalysis = {
     perTurn: AnalysisPerTurn[];
@@ -1012,6 +1013,10 @@ export default function AssistantApp({
         { length: cf.numPlayers },
         () => [] as number[],
       );
+      const cfWinLikelihoods: number[][] = Array.from(
+        { length: cf.numPlayers },
+        () => [] as number[],
+      );
       let safety = 0;
       while (!isTerminal(cf) && safety < 250) {
         setAnalysisProgress(`replaying turn ${safety + 1}…`);
@@ -1023,9 +1028,11 @@ export default function AssistantApp({
         });
         const ws = normalizeWinRates(stats.winRates);
         cf = applyAllReveals(apply(cf, stats.bestAction));
+        const wl = winLikelihoodAtState(cf, cf.numPlayers);
         for (let p = 0; p < cf.numPlayers; p++) {
           cfWinShares[p]!.push(ws[p] ?? 0);
           cfPrestiges[p]!.push(cf.players[p]?.prestige ?? 0);
+          cfWinLikelihoods[p]!.push(wl[p] ?? 0);
         }
         safety++;
       }
@@ -1037,6 +1044,7 @@ export default function AssistantApp({
           winnerIdx: cfWinner,
           winShares: cfWinShares,
           prestiges: cfPrestiges,
+          winLikelihoods: cfWinLikelihoods,
         },
       });
       setAnalysisProgress('');
@@ -2055,24 +2063,11 @@ export default function AssistantApp({
             </span>
           </h2>
           <StackedAreaChart
-            title="Prestige share over time"
+            title="Win likelihood over time"
             playerLabels={s.players
               .slice(0, s.numPlayers)
               .map((_, i) => playerLabel(i))}
-            series={s.players
-              .slice(0, s.numPlayers)
-              .map((_, pIdx) =>
-                s.gameLog.map((e) => {
-                  // Share = this player's prestige / sum of everyone's
-                  // prestige. When nobody has scored yet, fall back to an
-                  // even split so the chart reads "no leader yet" rather
-                  // than dividing by zero.
-                  const sum = e.prestigesAfter.reduce((a, b) => a + b, 0);
-                  return sum === 0
-                    ? 1 / s.numPlayers
-                    : (e.prestigesAfter[pIdx] ?? 0) / sum;
-                }),
-              )}
+            series={buildWinLikelihoodSeries(s.gameLog, s.numPlayers)}
           />
           <HistoryChart
             yLabel="Prestige over time"
@@ -2152,19 +2147,11 @@ export default function AssistantApp({
                 Counterfactual (engine vs engine from turn 1)
               </div>
               <StackedAreaChart
-                title="Counterfactual prestige share"
+                title="Counterfactual win likelihood"
                 playerLabels={s.players
                   .slice(0, s.numPlayers)
                   .map((_, i) => playerLabel(i))}
-                series={analysis.counterfactual.prestiges.map((row) =>
-                  row.map((_, t) => {
-                    const sum = analysis.counterfactual.prestiges
-                      .reduce((a, r) => a + (r[t] ?? 0), 0);
-                    return sum === 0
-                      ? 1 / s.numPlayers
-                      : (row[t] ?? 0) / sum;
-                  }),
-                )}
+                series={analysis.counterfactual.winLikelihoods}
               />
               <HistoryChart
                 yLabel="Counterfactual prestige (engine vs engine from turn 1)"
@@ -2219,6 +2206,57 @@ function BlindCardArt({ tier, size = 'normal' }: { tier: Tier; size?: 'normal' |
 // =============================================================================
 
 const CHART_PALETTE = ['#1f2937', '#dc2626', '#2563eb', '#15803d'];
+
+/**
+ * Compute a "win likelihood" share per player at a given state.
+ *
+ * Why not MCTS? MCTS at 300 iter is a conservative estimator — when four
+ * players have comparable positions the rollouts squash to ~1.0 each and
+ * the normalized share is uninformatively close to 1/N. The chart was
+ * flat through the entire game until the very last ply.
+ *
+ * Why the evaluator + softmax? `evaluateV3` is a deterministic, smooth
+ * function of the state (prestige + bonuses + noble proximity + opponent
+ * threat). Softmax across players amplifies the leader's score relative
+ * to the rest — mid-game (similar scores) stays near 1/N, late-game
+ * (one player clearly ahead) converges to that player, terminal states
+ * collapse to ~100% for the winner. Same poker-equity arc the user
+ * asked about, without rollout noise.
+ *
+ * Temperature ≈ 5 picked to match the engine's existing `squash` scale
+ * (`sigmoid(x/5)`) so the math sits in the same regime as MCTS.
+ */
+const SOFTMAX_TEMPERATURE = 5;
+const winLikelihoodAtState = (state: GameState, numPlayers: number): number[] => {
+  const scores = Array.from({ length: numPlayers }, (_, i) =>
+    evaluateV3(state, i as PlayerIndex),
+  );
+  const exps = scores.map((s) => Math.exp(s / SOFTMAX_TEMPERATURE));
+  const sum = exps.reduce((a, b) => a + b, 0);
+  if (sum <= 0) return scores.map(() => 1 / numPlayers);
+  return exps.map((e) => e / sum);
+};
+
+const buildWinLikelihoodSeries = (
+  gameLog: GameLogEntry[],
+  numPlayers: number,
+): number[][] => {
+  // Plot the *post-action* state at each turn so the final entry reflects
+  // the actual position the game ends in (otherwise the chart is always
+  // one ply behind the win condition).
+  const series: number[][] = Array.from({ length: numPlayers }, () => []);
+  for (const entry of gameLog) {
+    let post: GameState;
+    try {
+      post = apply(entry.snapshotBefore, entry.action);
+    } catch {
+      post = entry.snapshotBefore;
+    }
+    const w = winLikelihoodAtState(post, numPlayers);
+    for (let p = 0; p < numPlayers; p++) series[p]!.push(w[p] ?? 0);
+  }
+  return series;
+};
 
 /**
  * Stacked-area chart used for win-share (which always sums to 1.0 per
