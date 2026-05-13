@@ -51,10 +51,18 @@ const GEM_SUPPLY_DEFAULT: Record<2 | 3 | 4, GemPool> = {
   4: { white: 7, blue: 7, green: 7, red: 7, black: 7, gold: 5 },
 };
 
+type ReservedFormCard = {
+  card: Card;
+  // Only face-up-sourced reserves are tracked in the form; blind reserves
+  // from a deck are anonymous in real play, so we drop them on
+  // form/state round-trips and only retain the +1 gold the action gave.
+};
+
 type PlayerForm = {
   bonuses: ColorCount;
   gems: GemPool;
   prestige: number;
+  reserved: ReservedFormCard[];
 };
 
 type FaceUpGrid = Record<Tier, Array<Card | null>>;
@@ -85,6 +93,7 @@ const emptyPlayer = (): PlayerForm => ({
   bonuses: emptyColorCount(),
   gems: emptyGemPool(),
   prestige: 0,
+  reserved: [],
 });
 
 const emptyFaceUp = (): FaceUpGrid => ({
@@ -116,6 +125,17 @@ const initialState = (): AssistantState => {
         nobles: parsed.nobles
           .map((n) => noblesById.get(n.id))
           .filter((n): n is Noble => n !== undefined),
+        // Rehydrate reserved cards by id (older versions don't have
+        // .reserved on PlayerForm so we default to []).
+        players: parsed.players.map((p) => ({
+          ...p,
+          reserved: Array.isArray(p.reserved)
+            ? p.reserved.flatMap((r) => {
+                const card = cardsById.get(r.card?.id);
+                return card === undefined ? [] : [{ card }];
+              })
+            : [],
+        })),
       };
     }
   } catch {
@@ -145,6 +165,8 @@ type Recommendation = {
   summary: string;
   /** Plain-language consequences of applying `bestAction`. */
   explanation: string[];
+  /** Generic Splendor lessons tied to this action. */
+  strategy: string[];
   winRates: number[];
   currentPlayer: number;
   rootVisits: number;
@@ -173,6 +195,11 @@ const fromGameState = (gs: GameState, prev: AssistantState): AssistantState => (
     bonuses: { ...p.bonuses },
     gems: { ...p.gems },
     prestige: p.prestige,
+    // Only face-up-source reserves persist into the form. Blind reserves
+    // have unknown identities in real play and we already discard them.
+    reserved: p.reserved
+      .filter((r) => r.reservedFrom === 'faceUp')
+      .map((r) => ({ card: r.card })),
   })),
 });
 
@@ -183,10 +210,14 @@ const buildGameState = (s: AssistantState): GameState => {
       if (slot !== null) used.add(slot.id);
     }
   }
-  // Decks = remaining cards of that tier minus what's face-up. We don't
-  // model purchased cards explicitly (bonuses/prestige are entered directly),
-  // so the deck count is slightly overstated by the count of cards already
-  // bought — this matters very little for MCTS-with-rollouts.
+  // Reserved cards have also left the deck — exclude them too.
+  for (const p of s.players) {
+    for (const r of p.reserved) used.add(r.card.id);
+  }
+  // Decks = remaining cards of that tier minus what's face-up or reserved.
+  // We don't model purchased cards explicitly (bonuses/prestige are entered
+  // directly), so the deck count is slightly overstated by the count of
+  // cards already bought — minor inaccuracy for MCTS-with-rollouts.
   const decks = {
     1: ALL_CARDS.filter((c) => c.tier === 1 && !used.has(c.id)),
     2: ALL_CARDS.filter((c) => c.tier === 2 && !used.has(c.id)),
@@ -195,7 +226,12 @@ const buildGameState = (s: AssistantState): GameState => {
   const players: PlayerState[] = s.players.slice(0, s.numPlayers).map((p) => ({
     gems: { ...p.gems },
     purchased: [],
-    reserved: [],
+    // The form only carries face-up-source reserves (see ReservedFormCard
+    // comment); rebuild them with the right `reservedFrom` tag here.
+    reserved: p.reserved.map((r) => ({
+      card: r.card,
+      reservedFrom: 'faceUp' as const,
+    })),
     nobles: [],
     bonuses: { ...p.bonuses },
     prestige: p.prestige,
@@ -365,6 +401,91 @@ const explainAction = (
   return lines;
 };
 
+// Returns 1-3 generalizable Splendor lessons tied to the recommended action.
+// These are about *strategy* (why this kind of move is generally good),
+// not the immediate concrete consequences (which `explainAction` covers).
+const strategicNotes = (
+  before: GameState,
+  after: GameState,
+  me: PlayerIndex,
+  action: Action,
+): string[] => {
+  const notes: string[] = [];
+  const beforeMe = before.players[me];
+  const afterMe = after.players[me];
+  if (beforeMe === undefined || afterMe === undefined) return notes;
+
+  switch (action.type) {
+    case 'take3':
+      notes.push(
+        'Take-3 is the workhorse move: maximum gem variety per turn. Prefer it when you can spend the gems toward a real target within 1-2 turns — gems sitting in hand past the 10-cap are wasted.',
+      );
+      break;
+    case 'take2':
+      notes.push(
+        'Take-2-same commits to a color. It is strongest when the supply pile is at 4+ (so opponents cannot deny it) and you already see a card whose cost concentrates that color.',
+      );
+      break;
+    case 'reserve':
+      notes.push(
+        'Reserve gives you 1 gold — the wildcard that substitutes for any missing color. Use reserves to (a) lock a high-prestige T3 card you cannot yet afford or (b) deny a card an opponent is about to buy.',
+      );
+      break;
+    case 'buy': {
+      let card: Card | null = null;
+      if (action.source.kind === 'faceUp') {
+        card = before.faceUp[action.source.tier][action.source.slot] ?? null;
+      } else {
+        card = beforeMe.reserved[action.source.index]?.card ?? null;
+      }
+      if (card !== null) {
+        if (card.tier === 1) {
+          notes.push(
+            'Tier-1 buys are engine work: the bonus is permanent, so every future card costing that color costs one fewer gem. Cheap T1s pay for themselves within 2-3 turns.',
+          );
+        } else if (card.tier === 2) {
+          notes.push(
+            'Tier-2 cards score AND extend the engine. They are usually the best prestige-per-turn after you have 3-4 T1 bonuses to pay for them.',
+          );
+        } else if (card.tier === 3) {
+          notes.push(
+            'Every T3 card is an "anchor": typically needs 5+ of one color in cost. Plan T1/T2 buys to feed those colors instead of spreading bonuses thinly.',
+          );
+        }
+      }
+      const claimedNoble = before.nobles.find((n) => !after.nobles.some((x) => x.id === n.id));
+      if (claimedNoble !== undefined) {
+        notes.push(
+          'Claimed a noble — free +3 prestige. Nobles reward concentration: build the same color pair across multiple cards rather than one of everything.',
+        );
+      } else {
+        let advancedNoble = false;
+        for (const noble of after.nobles) {
+          const beforeProg = COLORS.reduce(
+            (s2, c) => s2 + Math.min(beforeMe.bonuses[c], noble.requirement[c]),
+            0,
+          );
+          const afterProg = COLORS.reduce(
+            (s2, c) => s2 + Math.min(afterMe.bonuses[c], noble.requirement[c]),
+            0,
+          );
+          if (afterProg > beforeProg) {
+            advancedNoble = true;
+            break;
+          }
+        }
+        if (advancedNoble) {
+          notes.push(
+            'This buy advances a noble. Nobles auto-trigger at the end of your turn — a noble worth +3 can flip a tight endgame.',
+          );
+        }
+      }
+      break;
+    }
+  }
+  return notes;
+};
+
 // =============================================================================
 // Component
 // =============================================================================
@@ -518,10 +639,24 @@ export default function AssistantApp() {
 
   const validate = (): string[] => {
     const issues: string[] = [];
-    let totalFaceUp = 0;
-    for (const tier of TIERS) for (const slot of s.faceUp[tier]) if (slot) totalFaceUp += 1;
-    if (totalFaceUp < 4) issues.push(`Only ${totalFaceUp} face-up cards entered (expect up to 12).`);
-    if (s.nobles.length === 0) issues.push('No nobles entered on the board.');
+    const emptySlots: string[] = [];
+    for (const tier of TIERS) {
+      for (let slot = 0; slot < s.faceUp[tier].length; slot++) {
+        if (s.faceUp[tier][slot] === null) {
+          emptySlots.push(`T${tier} slot ${slot + 1}`);
+        }
+      }
+    }
+    if (emptySlots.length > 0) {
+      issues.push(
+        emptySlots.length === 1
+          ? `Fill the empty face-up slot (${emptySlots[0]}) before the assistant can recommend.`
+          : `${emptySlots.length} face-up slots are empty — fill them before the assistant can recommend.`,
+      );
+    }
+    if (s.nobles.length === 0) {
+      issues.push('No nobles entered on the board.');
+    }
     return issues;
   };
 
@@ -536,8 +671,16 @@ export default function AssistantApp() {
   const runMcts = async (iterations: number) => {
     const issues = validate();
     setErrors(issues);
-    setThinking(true);
     setRecommendation(null);
+    // If the board is invalid (typically: an empty face-up slot after a buy
+    // or reserve) we must not recommend — the engine would optimise against
+    // a counterfactual game state. The user sees the validation issue
+    // instead and is prompted to enter the revealed card.
+    if (issues.length > 0) {
+      setThinking(false);
+      return;
+    }
+    setThinking(true);
     await new Promise((resolve) => setTimeout(resolve, 30)); // let the spinner render
     try {
       const state = buildGameState(s);
@@ -553,6 +696,7 @@ export default function AssistantApp() {
       // because `apply` could theoretically throw if state drifted between
       // legalActions and now; in that case we just skip the panel.
       let explanation: string[] = [];
+      let strategy: string[] = [];
       try {
         const afterBest = apply(state, stats.bestAction);
         explanation = explainAction(
@@ -562,8 +706,14 @@ export default function AssistantApp() {
           stats.bestAction,
           playerLabel,
         );
+        strategy = strategicNotes(
+          state,
+          afterBest,
+          state.currentPlayer,
+          stats.bestAction,
+        );
       } catch {
-        /* leave explanation empty */
+        /* leave explanation/strategy empty */
       }
       const alternatives: Alternative[] = stats.candidates
         .slice(1, 5)
@@ -577,6 +727,7 @@ export default function AssistantApp() {
         bestAction: stats.bestAction,
         summary,
         explanation,
+        strategy,
         winRates: stats.winRates,
         currentPlayer: state.currentPlayer,
         rootVisits: stats.rootVisits,
@@ -656,18 +807,21 @@ export default function AssistantApp() {
 
   const visibleNobles = ALL_NOBLES;
 
-  // Card IDs already assigned to a face-up slot. The picker uses this to
-  // grey out cards the user already placed elsewhere, so the same physical
-  // card can't be selected twice.
-  const usedFaceUpIds = useMemo(() => {
+  // Card IDs already on the table somewhere (face-up or reserved). The
+  // picker uses this to grey out cards the user already placed elsewhere
+  // so the same physical card can't be selected twice.
+  const usedCardIds = useMemo(() => {
     const set = new Set<string>();
     for (const tier of TIERS) {
       for (const c of s.faceUp[tier]) {
         if (c !== null) set.add(c.id);
       }
     }
+    for (const p of s.players) {
+      for (const r of p.reserved) set.add(r.card.id);
+    }
     return set;
-  }, [s.faceUp]);
+  }, [s.faceUp, s.players]);
 
   // ===== Render =====
 
@@ -789,7 +943,7 @@ export default function AssistantApp() {
                   key={i}
                   tier={tier}
                   card={card}
-                  unavailableIds={usedFaceUpIds}
+                  unavailableIds={usedCardIds}
                   onPick={(picked) => {
                     setS((prev) => {
                       const grid = { ...prev.faceUp, [tier]: prev.faceUp[tier].slice() };
@@ -839,10 +993,35 @@ export default function AssistantApp() {
             name={s.playerNames[idx] ?? ''}
             isCurrent={idx === s.currentPlayer}
             player={p}
+            unavailableIds={usedCardIds}
             onName={(name) => setPlayerName(idx, name)}
             onBonus={(c, v) => setPlayerBonus(idx, c, v)}
             onGem={(c, v) => setPlayerGem(idx, c, v)}
             onPrestige={(v) => setPlayerPrestige(idx, v)}
+            onReservedAdd={(card) =>
+              setS((prev) => {
+                const players = prev.players.slice();
+                const target = players[idx];
+                if (target === undefined) return prev;
+                if (target.reserved.length >= 3) return prev;
+                players[idx] = {
+                  ...target,
+                  reserved: [...target.reserved, { card }],
+                };
+                return { ...prev, players };
+              })
+            }
+            onReservedRemove={(i) =>
+              setS((prev) => {
+                const players = prev.players.slice();
+                const target = players[idx];
+                if (target === undefined) return prev;
+                const reserved = target.reserved.slice();
+                reserved.splice(i, 1);
+                players[idx] = { ...target, reserved };
+                return { ...prev, players };
+              })
+            }
           />
         ))}
       </section>
@@ -904,6 +1083,17 @@ export default function AssistantApp() {
                         <li key={i}>{namifyNarration(line)}</li>
                       ))}
                     </ul>
+                  </div>
+                )}
+
+                {recommendation.strategy.length > 0 && (
+                  <div className="strategy">
+                    <div className="strategy-title">
+                      Strategy — read these over time
+                    </div>
+                    {recommendation.strategy.map((para, i) => (
+                      <p key={i}>{para}</p>
+                    ))}
                   </div>
                 )}
 
@@ -1168,20 +1358,28 @@ function PlayerPanel({
   name,
   isCurrent,
   player,
+  unavailableIds,
   onName,
   onBonus,
   onGem,
   onPrestige,
+  onReservedAdd,
+  onReservedRemove,
 }: {
   idx: number;
   name: string;
   isCurrent: boolean;
   player: PlayerForm;
+  unavailableIds: Set<string>;
   onName: (name: string) => void;
   onBonus: (c: Color, v: number) => void;
   onGem: (c: GemColor, v: number) => void;
   onPrestige: (v: number) => void;
+  onReservedAdd: (card: Card) => void;
+  onReservedRemove: (i: number) => void;
 }) {
+  const [reservedOpen, setReservedOpen] = useState(false);
+  const [addingReserved, setAddingReserved] = useState<Tier | null>(null);
   return (
     <div className={`player-panel ${isCurrent ? 'current' : ''}`}>
       <div className="player-header">
@@ -1237,6 +1435,61 @@ function PlayerPanel({
           onChange={onPrestige}
           ariaLabel={`P${idx} prestige`}
         />
+      </div>
+
+      <div className="player-row reserved-row">
+        <button
+          type="button"
+          className="reserved-toggle"
+          onClick={() => setReservedOpen((o) => !o)}
+        >
+          Reserved ({player.reserved.length}/3) {reservedOpen ? '▼' : '▶'}
+        </button>
+        {reservedOpen && (
+          <div className="reserved-list">
+            {player.reserved.map((r, i) => (
+              <div key={i} className="reserved-card">
+                <CardArt card={r.card} size="small" />
+                <button
+                  type="button"
+                  className="reserved-remove"
+                  onClick={() => onReservedRemove(i)}
+                  aria-label={`Remove ${r.card.id} from reserved`}
+                  title="Remove"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            {player.reserved.length < 3 && (
+              <div className="reserved-add-tier-row">
+                <span className="reserved-add-label">+ from:</span>
+                {TIERS.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    className="reserved-add-tier"
+                    onClick={() => setAddingReserved(t)}
+                  >
+                    T{t}
+                  </button>
+                ))}
+              </div>
+            )}
+            {addingReserved !== null && (
+              <CardPickerModal
+                tier={addingReserved}
+                selected={null}
+                unavailableIds={unavailableIds}
+                onPick={(picked) => {
+                  if (picked !== null) onReservedAdd(picked);
+                  setAddingReserved(null);
+                }}
+                onClose={() => setAddingReserved(null)}
+              />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1462,22 +1715,42 @@ function OpponentTurnPanel({
   };
 
   const renderBuy = () => {
-    const buyable: Array<{ card: Card; tier: Tier; slot: number; payment: GemPool }> = [];
+    type FaceUpBuy = {
+      kind: 'faceUp';
+      card: Card;
+      tier: Tier;
+      slot: number;
+      payment: GemPool;
+    };
+    type ReserveBuy = {
+      kind: 'reserve';
+      card: Card;
+      index: number;
+      payment: GemPool;
+    };
+    const buyable: Array<FaceUpBuy | ReserveBuy> = [];
     for (const tier of TIERS) {
       for (let slot = 0; slot < state.faceUp[tier].length; slot++) {
         const card = state.faceUp[tier][slot];
         if (card === null || card === undefined) continue;
         const payment = computePayment(card, opp);
         if (payment !== null) {
-          buyable.push({ card, tier, slot, payment });
+          buyable.push({ kind: 'faceUp', card, tier, slot, payment });
         }
+      }
+    }
+    for (let index = 0; index < opp.reserved.length; index++) {
+      const r = opp.reserved[index];
+      if (r === undefined) continue;
+      const payment = computePayment(r.card, opp);
+      if (payment !== null) {
+        buyable.push({ kind: 'reserve', card: r.card, index, payment });
       }
     }
     if (buyable.length === 0) {
       return (
         <p className="picker-disabled">
-          {oppName} can't afford any face-up card. (Buying from their own
-          reserve isn't tracked in v0.4 — edit manually if it happens.)
+          {oppName} can't afford any face-up or reserved card.
         </p>
       );
     }
@@ -1485,26 +1758,43 @@ function OpponentTurnPanel({
       <>
         <p className="picker-hint">
           Pick the card {oppName} bought. Only cards they can afford are
-          shown; payment is computed automatically.
+          shown; payment is computed automatically. Reserved cards are
+          tagged "from reserve".
         </p>
         <div className="picker-buy-grid">
-          {buyable.map((b) => (
-            <button
-              key={`${b.tier}-${b.slot}`}
-              type="button"
-              className="picker-card-btn"
-              onClick={() =>
-                onApply({
-                  type: 'buy',
-                  source: { kind: 'faceUp', tier: b.tier, slot: b.slot },
-                  payment: b.payment,
-                })
-              }
-              aria-label={`buy ${b.card.id}`}
-            >
-              <CardArt card={b.card} size="small" />
-            </button>
-          ))}
+          {buyable.map((b) => {
+            const key = b.kind === 'faceUp'
+              ? `f-${b.tier}-${b.slot}`
+              : `r-${b.index}`;
+            return (
+              <button
+                key={key}
+                type="button"
+                className="picker-card-btn"
+                onClick={() =>
+                  onApply(
+                    b.kind === 'faceUp'
+                      ? {
+                          type: 'buy',
+                          source: { kind: 'faceUp', tier: b.tier, slot: b.slot },
+                          payment: b.payment,
+                        }
+                      : {
+                          type: 'buy',
+                          source: { kind: 'reserve', index: b.index },
+                          payment: b.payment,
+                        },
+                  )
+                }
+                aria-label={`buy ${b.card.id}${b.kind === 'reserve' ? ' from reserve' : ''}`}
+              >
+                <CardArt card={b.card} size="small" />
+                {b.kind === 'reserve' && (
+                  <span className="reserve-badge">from reserve</span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </>
     );
