@@ -1037,6 +1037,27 @@ export default function AssistantApp() {
   // assistantState because recommendation is cleared on any state change.
   const engineState = useMemo(() => buildGameState(s), [s]);
 
+  /**
+   * Normalized "share of likely wins" per player.
+   *
+   * MCTS stores totalReward[i]/visits, which for terminal-only rollouts sums
+   * to 1.0 (one winner per game). With non-terminal rollouts (the common
+   * case mid-game) each player's reward is a *squashed* evaluator score in
+   * [0, 1] — both players can saturate near 1 if both positions look good,
+   * which is why two players showed 96% each pre-fix. Dividing by the sum
+   * converts the raw scores into a proper "of these candidate winners,
+   * which one?" share that adds to 100%.
+   *
+   * Falls back to a flat distribution when MCTS hasn't given us anything.
+   */
+  const winShares: number[] | undefined = useMemo(() => {
+    if (recommendation === null) return undefined;
+    const raw = recommendation.winRates;
+    const sum = raw.reduce((a, b) => a + b, 0);
+    if (sum <= 0) return raw.map(() => 1 / raw.length);
+    return raw.map((r) => r / sum);
+  }, [recommendation]);
+
   // Which face-up slot (if any) the current recommendation points at. Drives
   // the highlight ring on CardSlot so the user can see exactly which card
   // the engine wants them to buy/reserve.
@@ -1257,7 +1278,7 @@ export default function AssistantApp() {
             isCurrent={idx === s.currentPlayer}
             player={p}
             unavailableIds={usedCardIds}
-            winRate={recommendation?.winRates[idx]}
+            winRate={winShares?.[idx]}
             onName={(name) => setPlayerName(idx, name)}
             onReservedAdd={(card) =>
               setS((prev) => {
@@ -1706,7 +1727,7 @@ function PlayerPanel({
         {winRate !== undefined && (
           <span
             className="winchance-pill"
-            title="MCTS win-rate estimate from the current recommendation (not calibrated)"
+            title="Share of likely wins from the current MCTS recommendation (sums to 100% across players, not calibrated)"
           >
             {(Math.max(0, Math.min(1, winRate)) * 100).toFixed(0)}%
           </span>
