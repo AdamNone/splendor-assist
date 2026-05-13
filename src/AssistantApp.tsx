@@ -1199,7 +1199,6 @@ export default function AssistantApp() {
             assistantState={s}
             playerLabel={playerLabel}
             onApply={onApply}
-            onSkip={() => setCurrentPlayer(s.mainPlayer)}
             onSuggest={() => void runMcts(500)}
             thinking={thinking}
             errors={errors}
@@ -1710,7 +1709,6 @@ function OpponentTurnPanel({
   assistantState,
   playerLabel,
   onApply,
-  onSkip,
   onSuggest,
   thinking,
   errors,
@@ -1718,7 +1716,6 @@ function OpponentTurnPanel({
   assistantState: AssistantState;
   playerLabel: (idx: number) => string;
   onApply: (action: Action) => void;
-  onSkip: () => void;
   onSuggest: () => void;
   thinking: boolean;
   errors: string[];
@@ -2051,14 +2048,6 @@ function OpponentTurnPanel({
           title={`Run MCTS as if ${oppName} were choosing optimally`}
         >
           {thinking ? '…' : 'Suggest'}
-        </button>
-        <button
-          type="button"
-          className="opp-skip-btn"
-          onClick={onSkip}
-          title="Record that this player passed and move to the next turn"
-        >
-          Skip →
         </button>
       </div>
 
