@@ -170,6 +170,42 @@ effective strength per unit of compute.
    counts, so the tree concentrates visits on actually-promising
    branches faster.
 
+## Infrastructure — parallel tournament harness
+
+Tournament experiments became the time bottleneck (search-d3 vs v3 over
+30 games = ~3 minutes; MCTS comparisons multiples of that). Sequential
+games are independent, so we now run them across a worker pool.
+
+**Implementation.** `playMatch` is now async; if both agents are passed
+as `AgentDescriptor` (`{ name, seed? }`), it spawns `cpus().length - 1`
+worker threads. Each worker reconstructs its assigned agent from the
+descriptor + seed via `makeAgent` and runs one game per assigned spec.
+Sequential mode (function-typed agents) is preserved unchanged for
+existing regression tests.
+
+Workers can't inherit tsx's import hooks from the main thread, so a
+tiny `.mjs` bootstrap (`tournament-worker-bootstrap.mjs`) registers
+tsx before importing the TS worker file. With that in place the
+worker imports our regular `src/game/` modules normally.
+
+**Speedup measurement (30 games, search-d3 vs greedy(v3), seed 7):**
+
+  Before parallelization : ~186 s
+  After  parallelization : ~48 s   (3.9× faster, 754% CPU)
+
+Worker pool gives near-linear speedup up to core count. The two CLI
+runs above produced identical results (16-12-2) — game *content* is
+deterministic regardless of worker count, only execution speed differs.
+
+**Caveat: time-budgeted agents (mcts-500ms, mcts-1s, iter-N) get
+throttled in parallel mode.** Wall-clock budgets aren't aware of CPU
+sharing — under 7-way contention each worker sees only ~1/7 of real
+CPU per 1 s of wall clock, so MCTS does ~7× fewer iterations than
+single-threaded. Spot check: `mcts-500ms` vs `v3` in parallel showed
+-30 pp (mcts much weaker than expected) where `mcts-500` (iter-budget)
+still wins +50 pp at the same 20-game seed. **Use iteration budgets
+when running parallel matches.**
+
 ## What's left for Phase 3
 
 - **Better rollouts.** Random rollouts are weak — a greedy rollout
