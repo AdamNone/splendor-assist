@@ -7,7 +7,7 @@ import type { MctsCandidate } from './game/mcts';
 import { evaluateV3 } from './game/evaluate';
 import { ALL_CARDS, ALL_NOBLES } from './game/data';
 import { narrate } from './game/narrate';
-import { seededRng } from './game/setup';
+import { seededRng, initialState as freshGameState } from './game/setup';
 import {
   COLORS,
   GEM_COLORS,
@@ -683,6 +683,11 @@ export default function AssistantApp() {
     nextState: GameState;
     seenIds: string[];
   } | null>(null);
+  // Simulation: engine plays both sides. simRunning is the play/pause
+  // state; simSpeedMs is the per-step delay (slider). Reset to defaults
+  // on app load — not persisted.
+  const [simRunning, setSimRunning] = useState(false);
+  const [simSpeedMs, setSimSpeedMs] = useState(1200);
 
   const pushHistory = (prev: AssistantState) => {
     setHistory((h) => [prev, ...h].slice(0, MAX_HISTORY));
@@ -787,6 +792,42 @@ export default function AssistantApp() {
     }));
     setRecommendation(null);
     setErrors([]);
+    setSimRunning(false);
+  };
+
+  /**
+   * Build an AssistantState pre-populated as a freshly-dealt game: 4 face-up
+   * cards per tier, numPlayers+1 nobles, default gem supply, no purchases.
+   * Used by the sim controls so the user doesn't have to click in every
+   * starting card manually.
+   */
+  const buildFreshAssistantState = (
+    numPlayers: 2 | 3 | 4,
+    mainPlayer: PlayerIndex,
+    playerNames: string[],
+  ): AssistantState => {
+    const fresh = freshGameState(numPlayers, {
+      rng: seededRng(Date.now() & 0xffff_ffff),
+    });
+    const seen = new Set<string>();
+    for (const tier of TIERS) for (const c of fresh.faceUp[tier]) if (c !== null) seen.add(c.id);
+    return {
+      numPlayers,
+      currentPlayer: 0,
+      startingPlayer: 0,
+      turnNumber: 0,
+      mainPlayer,
+      playerNames: playerNames.slice(),
+      gemSupply: { ...fresh.gemSupply },
+      faceUp: {
+        1: fresh.faceUp[1].slice(),
+        2: fresh.faceUp[2].slice(),
+        3: fresh.faceUp[3].slice(),
+      },
+      nobles: fresh.nobles.slice(),
+      players: Array.from({ length: numPlayers }, emptyPlayer),
+      seenIds: Array.from(seen),
+    };
   };
 
   // ===== Validation =====
@@ -1028,6 +1069,46 @@ export default function AssistantApp() {
     onApply(action);
   };
 
+  /**
+   * One simulation tick: run MCTS for the current player and commit the
+   * recommended action, bypassing all user-prompt intercepts (blind
+   * reserves use the engine guess, multi-noble auto-takes the first
+   * eligible). Returns true if a step was taken, false if the game has
+   * ended or there's nothing legal to do.
+   */
+  const simStepOnce = (): boolean => {
+    const state = buildGameState(s);
+    if (isTerminal(state)) return false;
+    try {
+      const stats = mctsBestActionWithStats(state, {
+        iterations: 300,
+        evalFn: evaluateV3,
+        rng: seededRng(Date.now() & 0xffff_ffff),
+      });
+      const next = apply(state, stats.bestAction);
+      pushHistory(s);
+      const seen = collectSeen(next, s.seenIds);
+      commitApplied(next, seen);
+      return true;
+    } catch (err) {
+      setErrors([`Sim step failed: ${err instanceof Error ? err.message : String(err)}`]);
+      setSimRunning(false);
+      return false;
+    }
+  };
+
+  /**
+   * Start (or restart) a simulation from a freshly-dealt position. Replaces
+   * the current state with `numPlayers+1` dealt nobles and 4 face-up cards
+   * per tier, then engages auto-play.
+   */
+  const startSimFromFresh = () => {
+    setS((prev) => buildFreshAssistantState(prev.numPlayers, prev.mainPlayer, prev.playerNames));
+    setRecommendation(null);
+    setErrors([]);
+    setSimRunning(true);
+  };
+
   // Commit a recommendation-sourced blind reserve once the user has
   // identified the drawn card. We apply the reserve as if `kind: 'deck'`,
   // then overwrite the engine's guessed identity with the user's actual
@@ -1086,6 +1167,31 @@ export default function AssistantApp() {
     }
   };
 
+  // ===== Derived state used by effects + render =====
+
+  // Engine-shape state, used by ActionSummary to resolve faceUp sources
+  // for the recommendation/alternatives display, and by the terminal checks.
+  // Safe to use the current assistantState because recommendation is
+  // cleared on any state change.
+  const engineState = useMemo(() => buildGameState(s), [s]);
+
+  // End-of-round terminality: someone hit 15 prestige AND we've wrapped
+  // back to the starting seat (every player got an equal number of turns).
+  const gameOver = useMemo(() => isTerminal(engineState), [engineState]);
+  const gameWinner = useMemo(
+    () => (gameOver ? winner(engineState) : null),
+    [gameOver, engineState],
+  );
+  // "Game ending after this round" warning while at least one player is at
+  // 15+ but we haven't wrapped to startingPlayer yet.
+  const gameEndingSoon = useMemo(
+    () =>
+      !gameOver
+      && engineState.turnNumber > 0
+      && engineState.players.some((p) => p.prestige >= 15),
+    [gameOver, engineState],
+  );
+
   // ===== Auto-recommend =====
 
   const stateForEffect = s; // explicit so the effect can depend on the whole object
@@ -1100,6 +1206,10 @@ export default function AssistantApp() {
     // Game's done — no more recommendations.
     if (gameOver) {
       setRecommendation(null);
+      return;
+    }
+    // Sim is driving — don't fight it with the auto-recommend.
+    if (simRunning) {
       return;
     }
     // Not the main player's turn — clear any stale recommendation.
@@ -1128,7 +1238,37 @@ export default function AssistantApp() {
     stateForEffect.nobles,
     stateForEffect.players,
     stateForEffect.numPlayers,
+    simRunning,
+    gameOver,
   ]);
+
+  // ===== Sim auto-step loop =====
+  //
+  // When simRunning is true, schedule one step per simSpeedMs. The effect
+  // re-fires after each commit (state changes → s changes), scheduling the
+  // next step. Stops on game over or error.
+  const simTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (simTimeoutRef.current !== null) {
+      clearTimeout(simTimeoutRef.current);
+      simTimeoutRef.current = null;
+    }
+    if (!simRunning) return;
+    if (gameOver) {
+      setSimRunning(false);
+      return;
+    }
+    simTimeoutRef.current = setTimeout(() => {
+      simStepOnce();
+    }, simSpeedMs);
+    return () => {
+      if (simTimeoutRef.current !== null) {
+        clearTimeout(simTimeoutRef.current);
+        simTimeoutRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- simStepOnce closes over s
+  }, [simRunning, simSpeedMs, gameOver, stateForEffect]);
 
   // ===== Render helpers =====
 
@@ -1137,27 +1277,6 @@ export default function AssistantApp() {
   // that can't legally be revealed again — seenIds is exactly this set.
   const usedCardIds = useMemo(() => new Set(s.seenIds), [s.seenIds]);
 
-  // Engine-shape state, used by ActionSummary to resolve faceUp sources
-  // for the recommendation/alternatives display. Safe to use the current
-  // assistantState because recommendation is cleared on any state change.
-  const engineState = useMemo(() => buildGameState(s), [s]);
-
-  // End-of-round terminality: someone hit 15 prestige AND we've wrapped
-  // back to the starting seat (every player got an equal number of turns).
-  const gameOver = useMemo(() => isTerminal(engineState), [engineState]);
-  const gameWinner = useMemo(
-    () => (gameOver ? winner(engineState) : null),
-    [gameOver, engineState],
-  );
-  // "Game ending after this round" warning while at least one player is at
-  // 15+ but we haven't wrapped to startingPlayer yet.
-  const gameEndingSoon = useMemo(
-    () =>
-      !gameOver
-      && engineState.turnNumber > 0
-      && engineState.players.some((p) => p.prestige >= 15),
-    [gameOver, engineState],
-  );
 
   /**
    * Normalized "share of likely wins" per player.
@@ -1261,6 +1380,51 @@ export default function AssistantApp() {
                   {playerLabel(i)}
                 </button>
               ))}
+            </div>
+          </div>
+          <div className="sim-controls" title="Engine plays both sides">
+            <button
+              type="button"
+              className="sim-btn sim-toggle"
+              onClick={() => {
+                if (simRunning) {
+                  setSimRunning(false);
+                  return;
+                }
+                // If the board is blank (turnNumber=0 and no nobles), deal
+                // a fresh game first; otherwise resume from where we are.
+                if (s.turnNumber === 0 && s.nobles.length === 0) {
+                  startSimFromFresh();
+                } else {
+                  setSimRunning(true);
+                }
+              }}
+              disabled={gameOver}
+              aria-label={simRunning ? 'Pause simulation' : 'Run simulation'}
+            >
+              {simRunning ? '⏸' : '▶'} Sim
+            </button>
+            <button
+              type="button"
+              className="sim-btn"
+              onClick={simStepOnce}
+              disabled={simRunning || gameOver}
+              title="Apply the engine's recommended action for the current player"
+            >
+              Step
+            </button>
+            <div className="sim-speed">
+              <span className="sim-speed-label">slow</span>
+              <input
+                type="range"
+                min="200"
+                max="3000"
+                step="100"
+                value={3200 - simSpeedMs}
+                onChange={(e) => setSimSpeedMs(3200 - Number(e.target.value))}
+                aria-label="Simulation speed"
+              />
+              <span className="sim-speed-label">fast</span>
             </div>
           </div>
           <div className="header-actions">

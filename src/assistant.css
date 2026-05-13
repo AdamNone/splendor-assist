@@ -50,7 +50,65 @@
   letter-spacing: 0.04em;
 }
 .assistant header .header-actions {
+  margin-left: 8px;
+}
+
+/* Simulation controls: ▶/⏸, Step, speed slider. Sit between the setup
+   pills and the Undo/New game buttons. */
+.sim-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-left: auto;
+  padding: 2px 8px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+.sim-btn {
+  appearance: none;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: #4b5563;
+  cursor: pointer;
+}
+.sim-btn:hover:not(:disabled) {
+  background: #f3f4f6;
+  color: #1f2937;
+}
+.sim-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.sim-btn.sim-toggle {
+  background: #1f2937;
+  color: #f9fafb;
+  border-color: #1f2937;
+}
+.sim-btn.sim-toggle:hover:not(:disabled) {
+  background: #111827;
+  color: #fff;
+}
+.sim-speed {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.sim-speed-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9ca3af;
+}
+.sim-speed input[type='range'] {
+  width: 80px;
+  accent-color: #1f2937;
 }
 .assistant header .sub {
   color: #6b7280;
