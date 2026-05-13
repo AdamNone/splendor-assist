@@ -178,6 +178,39 @@ Wrote `src/game/types.ts`, `src/game/gems.ts`, `src/game/legalActions.ts`, `src/
 - **Degenerate states with no legal action.** In rare positions (decks empty, all face-up cleared, supply too low for any take, no affordable card to buy, reserve full) a player could in principle have no legal move. Standard Splendor doesn't address this — what's the engine's right behavior? Probably: emit a "pass" action and continue. Defer until we see one in practice.
 - **Strategic noble choice.** D7 auto-picks the first qualifying noble. If two players are racing for one specific noble, an agent should arguably *choose* which to take. Revisit when the evaluator (Phase 1) is good enough that this difference matters.
 
+## Measurement: first-mover advantage (2026-05-13)
+
+D6's game-end rule — "round-completion check, everyone gets equal
+turns" — equalises the *count* of turns the players take but not the
+*opportunity*. Whoever moves first hits 15 prestige first when play is
+equally skilled, which triggers end-of-round; everyone else gets one
+last shot but is starting behind. To put a number on the effect we run
+identical agents head-to-head with seat 0 fixed (no alternation):
+
+| Agent             | Games | Seat 0 wins | Seat 1 wins | Draws | Δ (pp) |
+|---|---|---|---|---|---|
+| greedy(v3)        | 200   | 38.5%       | 30.5%       | 31.0% | **+8.0** |
+| mcts-200          | 100   | 49.0%       | 46.0%       |  5.0% | **+3.0** |
+
+(`npm run firstmover <agent> <games>` reproduces these.)
+
+**Headline.** First-mover advantage is real but modest at our agent
+strengths — about +8 pp at greedy skill, ~+3 pp at MCTS skill. Stronger
+play closes the gap: better agents convert fewer "free tempo" turns
+into the win because both sides cover their angles better.
+
+**Side observation.** MCTS produces dramatically fewer draws (5% vs
+31%). Greedy more often gets stuck in states where neither side can
+break to 15 (gem-cap pressure or starved colored gems); the deeper
+MCTS lookahead steers around those positions.
+
+**Implication for tournament results elsewhere.** The published win
+rates in Phase 1/2/3 head-to-heads all use seat alternation in
+`playMatch`, so first-mover advantage is averaged across both seats
+and cancels out. The 8-pp ceiling here means cross-agent comparisons
+with fewer than ~12 games can be noisy purely from seat luck even
+before agent-strength considerations.
+
 ## Phase 0 status
 
 **Done:**

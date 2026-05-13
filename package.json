@@ -13,7 +13,8 @@
     "typecheck": "tsc -b --noEmit",
     "play": "tsx src/cli/play.ts",
     "match": "tsx src/cli/play.ts match",
-    "compare": "tsx src/cli/play.ts compare"
+    "compare": "tsx src/cli/play.ts compare",
+    "firstmover": "tsx src/cli/measure-first-mover.ts"
   },
   "dependencies": {
     "react": "^19.2.5",
