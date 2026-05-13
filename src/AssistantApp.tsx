@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 // useMemo is used inside CardPickerModal below.
-import { mctsBestAction } from './game/mcts';
+import { mctsBestActionWithStats } from './game/mcts';
+import type { MctsCandidate } from './game/mcts';
 import { evaluateV3 } from './game/evaluate';
 import { ALL_CARDS, ALL_NOBLES } from './game/data';
 import { narrate } from './game/narrate';
 import { seededRng } from './game/setup';
 import { COLORS, GEM_COLORS, TIERS } from './game/types';
 import type {
+  Action,
   Card,
   Color,
   ColorCount,
@@ -106,9 +108,18 @@ const initialState = (): AssistantState => {
   };
 };
 
+type Alternative = {
+  summary: string;
+  visits: number;
+  meanReward: number;
+};
+
 type Recommendation = {
   summary: string;
-  alternatives: string[];
+  winRates: number[];
+  currentPlayer: number;
+  rootVisits: number;
+  alternatives: Alternative[];
   thinkingMs: number;
 };
 
@@ -154,7 +165,7 @@ const buildGameState = (s: AssistantState): GameState => {
   };
 };
 
-const describeAction = (state: GameState, action: ReturnType<typeof mctsBestAction>): string => {
+const describeAction = (state: GameState, action: Action): string => {
   return narrate(state, action);
 };
 
@@ -258,18 +269,25 @@ export default function AssistantApp() {
     try {
       const state = buildGameState(s);
       const start = Date.now();
-      // We compute *all* root visit counts by running mctsBestAction and
-      // returning its top choice; alternatives are scraped from the tree if
-      // we expose them. For v0.1 we just show the recommended action.
-      const action = mctsBestAction(state, {
+      const stats = mctsBestActionWithStats(state, {
         iterations: 500,
         evalFn: evaluateV3,
         rng: seededRng(Date.now() & 0xffff_ffff),
       });
-      const summary = describeAction(state, action);
+      const summary = describeAction(state, stats.bestAction);
+      const alternatives: Alternative[] = stats.candidates
+        .slice(1, 5)
+        .map((c: MctsCandidate) => ({
+          summary: describeAction(state, c.action),
+          visits: c.visits,
+          meanReward: c.meanReward,
+        }));
       setRecommendation({
         summary,
-        alternatives: [],
+        winRates: stats.winRates,
+        currentPlayer: state.currentPlayer,
+        rootVisits: stats.rootVisits,
+        alternatives,
         thinkingMs: Date.now() - start,
       });
     } catch (err) {
@@ -448,8 +466,52 @@ export default function AssistantApp() {
             <div className="rec-line">
               <strong>Recommended:</strong> {recommendation.summary}
             </div>
+
+            <div className="winrates">
+              <div className="winrates-title">
+                Estimated win chance (Monte-Carlo, not calibrated)
+              </div>
+              {recommendation.winRates.map((rate, i) => {
+                const pct = Math.max(0, Math.min(1, rate)) * 100;
+                const isMe = i === recommendation.currentPlayer;
+                return (
+                  <div
+                    key={i}
+                    className={`winrate-row ${isMe ? 'me' : ''}`}
+                  >
+                    <span className="winrate-label">
+                      P{i}{isMe ? ' (to move)' : ''}
+                    </span>
+                    <div className="winrate-bar">
+                      <div
+                        className="winrate-fill"
+                        style={{ width: `${pct.toFixed(1)}%` }}
+                      />
+                    </div>
+                    <span className="winrate-value">{pct.toFixed(0)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {recommendation.alternatives.length > 0 && (
+              <div className="alternatives">
+                <div className="alt-title">Next-best options</div>
+                <ul>
+                  {recommendation.alternatives.map((a, i) => (
+                    <li key={i}>
+                      <span className="alt-summary">{a.summary}</span>
+                      <span className="alt-meta">
+                        {(a.meanReward * 100).toFixed(0)}% · {a.visits} visits
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div className="rec-meta">
-              MCTS · 500 iter · {recommendation.thinkingMs} ms
+              MCTS · {recommendation.rootVisits} iter · {recommendation.thinkingMs} ms
             </div>
           </div>
         )}

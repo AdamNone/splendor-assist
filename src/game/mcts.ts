@@ -269,17 +269,79 @@ export const determinize = (state: GameState, rng: Rng): GameState => ({
 });
 
 /**
- * Run MCTS from `rootState` for the requested budget (iterations or wall
- * time) and return the most-visited root child's action.
+ * Per-candidate MCTS statistics for one root action.
  *
- * "Most visited" rather than "highest mean reward": when iterations are
- * limited, visit count is a more stable signal than mean reward, since
- * a child visited only a handful of times can have wildly variable mean.
+ *   visits     — number of iterations that descended through this action
+ *   meanReward — average reward for the *root's active player* under the
+ *                subtree rooted at this action. Reward is in [0, 1] where
+ *                1 = "active player wins" at terminal leaves and the
+ *                squashed evaluator score otherwise.
  */
-export const mctsBestAction = (
+export type MctsCandidate = {
+  action: Action;
+  visits: number;
+  meanReward: number;
+};
+
+/**
+ * Output of `mctsBestActionWithStats`. The sum of `winRates` over players
+ * is 1.0 for terminal-only rollouts; with non-terminal rollouts using
+ * `squash` on the evaluator's score, the sum may diverge slightly from
+ * 1.0, so treat the numbers as "directional estimates", not calibrated
+ * probabilities.
+ */
+export type MctsStats = {
+  bestAction: Action;
+  rootVisits: number;
+  /** winRates[i] is the value MCTS assigns to player i from this state. */
+  winRates: number[];
+  /** Sorted by visits descending. */
+  candidates: MctsCandidate[];
+};
+
+const finalizeStats = (root: Node): MctsStats => {
+  const numPlayers = root.totalReward.length;
+  const me = root.currentPlayer;
+  const winRates = new Array<number>(numPlayers).fill(0);
+  if (root.visits > 0) {
+    for (let p = 0; p < numPlayers; p++) {
+      winRates[p] = (root.totalReward[p] ?? 0) / root.visits;
+    }
+  }
+  const candidates: MctsCandidate[] = [];
+  for (const child of root.children) {
+    const action = child.parentAction;
+    if (action === null) continue;
+    const meanReward = child.visits === 0
+      ? 0
+      : (child.totalReward[me] ?? 0) / child.visits;
+    candidates.push({ action, visits: child.visits, meanReward });
+  }
+  candidates.sort((a, b) => b.visits - a.visits);
+  const best = candidates[0];
+  if (best === undefined) {
+    throw new Error('mctsBestActionWithStats: no expansions performed');
+  }
+  return {
+    bestAction: best.action,
+    rootVisits: root.visits,
+    winRates,
+    candidates,
+  };
+};
+
+/**
+ * Run MCTS from `rootState` and return rich root statistics: best action,
+ * every player's win-rate estimate, and the candidate actions ranked by
+ * visit count.
+ *
+ * Best action is the most-visited root child (not the highest-mean) — when
+ * iterations are limited, visit count is a more stable signal.
+ */
+export const mctsBestActionWithStats = (
   rootState: GameState,
   options: MctsOptions,
-): Action => {
+): MctsStats => {
   const evalFn = options.evalFn ?? evaluate;
   const rng = options.rng ?? Math.random;
   const c = options.c ?? DEFAULT_C;
@@ -288,7 +350,7 @@ export const mctsBestAction = (
   const determinization = options.determinization ?? false;
   const root = makeNode(rootState, null, null);
   if (root.untriedActions.length === 0) {
-    throw new Error('mctsBestAction: no legal actions at root');
+    throw new Error('mctsBestActionWithStats: no legal actions at root');
   }
 
   const deadline = options.timeMs !== undefined ? Date.now() + options.timeMs : undefined;
@@ -333,18 +395,14 @@ export const mctsBestAction = (
     backpropagate(node, reward);
   }
 
-  let best = root.children[0];
-  if (best === undefined) {
-    throw new Error('mctsBestAction: no expansions performed');
-  }
-  for (let i = 1; i < root.children.length; i++) {
-    const child = root.children[i];
-    if (child === undefined) continue;
-    if (child.visits > best.visits) best = child;
-  }
-  const action = best.parentAction;
-  if (action === null) {
-    throw new Error('mctsBestAction: best child has no parentAction');
-  }
-  return action;
+  return finalizeStats(root);
 };
+
+/**
+ * Back-compat wrapper — returns only the best action. Existing call sites
+ * (agents, search variants) keep working without change.
+ */
+export const mctsBestAction = (
+  rootState: GameState,
+  options: MctsOptions,
+): Action => mctsBestActionWithStats(rootState, options).bestAction;

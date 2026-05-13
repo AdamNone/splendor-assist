@@ -424,21 +424,107 @@ input[type='number']:focus {
 .issues > div + div { margin-top: 4px; }
 
 .recommendation {
-  padding: 12px 14px;
+  padding: 14px 16px;
   background: #f0fdf4;
   border: 1px solid #86efac;
-  border-radius: 8px;
+  border-radius: 10px;
 }
 .rec-line {
   font-size: 14px;
   color: #064e3b;
+  margin-bottom: 12px;
 }
 .rec-line strong {
   color: #064e3b;
 }
+
+.winrates {
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+.winrates-title {
+  font-size: 11px;
+  color: #065f46;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.winrate-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 44px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #064e3b;
+  margin-bottom: 4px;
+}
+.winrate-row.me .winrate-label {
+  font-weight: 600;
+}
+.winrate-label {
+  color: #047857;
+}
+.winrate-bar {
+  height: 8px;
+  background: #d1fae5;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.winrate-fill {
+  height: 100%;
+  background: #10b981;
+  transition: width 200ms ease;
+}
+.winrate-row.me .winrate-fill {
+  background: #047857;
+}
+.winrate-value {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: #064e3b;
+}
+
+.alternatives {
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.alt-title {
+  font-size: 11px;
+  color: #065f46;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.alternatives ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.alternatives li {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #064e3b;
+  padding: 3px 0;
+}
+.alt-summary {
+  font-family: ui-monospace, Menlo, monospace;
+}
+.alt-meta {
+  font-variant-numeric: tabular-nums;
+  color: #047857;
+  font-size: 11px;
+}
+
 .rec-meta {
   font-size: 11px;
   color: #047857;
-  margin-top: 4px;
   font-family: ui-monospace, Menlo, monospace;
+  text-align: right;
 }
