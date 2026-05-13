@@ -3,7 +3,7 @@ import { legalActions } from './legalActions';
 import { card, makeState, player, reservedCard } from './fixtures';
 
 describe('legalActions: gem-cap pressure', () => {
-  it('filters out take3 when player would exceed the 10-gem cap', () => {
+  it('shrinks take to fit headroom when full take-3 would exceed the cap', () => {
     const state = makeState({
       gemSupply: { white: 3, blue: 3, green: 3 },
       players: [
@@ -12,8 +12,40 @@ describe('legalActions: gem-cap pressure', () => {
       ],
     });
     const take3s = legalActions(state).filter((a) => a.type === 'take3');
-    // 8 + 3 = 11 > 10; no take3 should appear
-    expect(take3s).toHaveLength(0);
+    // 8 + 3 = 11 over cap; engine should offer take-2-different instead of
+    // skipping the action entirely. 3 supply colors → C(3,2) = 3 pairs.
+    expect(take3s).toHaveLength(3);
+    for (const a of take3s) {
+      if (a.type === 'take3') expect(a.colors).toHaveLength(2);
+    }
+  });
+
+  it('shrinks take to a single gem when only one gem of headroom remains', () => {
+    const state = makeState({
+      gemSupply: { white: 3, blue: 3, green: 3, red: 3, black: 3 },
+      players: [
+        player({ gems: { white: 0, blue: 0, green: 0, red: 4, black: 5, gold: 0 } }),
+        player(),
+      ],
+    });
+    const take3s = legalActions(state).filter((a) => a.type === 'take3');
+    // 9 + 3 = 12 over cap; only 1 gem of headroom → take-1 actions, one
+    // per color in supply.
+    expect(take3s).toHaveLength(5);
+    for (const a of take3s) {
+      if (a.type === 'take3') expect(a.colors).toHaveLength(1);
+    }
+  });
+
+  it('emits no take3 when player is at the 10-gem cap', () => {
+    const state = makeState({
+      gemSupply: { white: 3, blue: 3, green: 3 },
+      players: [
+        player({ gems: { white: 0, blue: 0, green: 0, red: 5, black: 5, gold: 0 } }),
+        player(),
+      ],
+    });
+    expect(legalActions(state).filter((a) => a.type === 'take3')).toHaveLength(0);
   });
 
   it('filters out take2 when the player would exceed cap', () => {

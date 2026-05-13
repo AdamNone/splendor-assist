@@ -35,16 +35,18 @@ export const legalActions = (state: GameState): Action[] => {
 
   const heldGems = totalGems(player.gems);
   const headroom = GEM_HAND_LIMIT - heldGems;
-  // Phase 1 simplification: skip take/reserve actions that would exceed the
-  // 10-gem cap. Per D8, the long-term plan is to enumerate discard variants
-  // here so the agent can choose what to keep — that lands when search needs
-  // it (Phase 2 / 3). Until then, the agent simply opts out of greedy gem
-  // hoarding once it would force a discard.
+  // Phase 1 simplification: rather than enumerate discard variants for
+  // take-actions that exceed the 10-gem cap, we clamp the take size by
+  // headroom. The Splendor rules already support partial takes when supply
+  // is limited; this lets the cap force the same shrink (a player at 9
+  // gems gets "take 1 different" instead of being told they're stuck).
+  // The long-term plan (D8) is still to model explicit discards once search
+  // can use them.
   const goldAvailable = state.gemSupply.gold > 0;
 
   const availableColors: Color[] = COLORS.filter((c) => state.gemSupply[c] > 0);
-  const takeSize = Math.min(3, availableColors.length);
-  if (takeSize > 0 && takeSize <= headroom) {
+  const takeSize = Math.min(3, availableColors.length, headroom);
+  if (takeSize > 0) {
     for (const subset of kSubsets(availableColors, takeSize)) {
       actions.push({ type: 'take3', colors: subset });
     }
