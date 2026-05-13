@@ -86,12 +86,14 @@ A tuner that replays the same game sequence for every candidate will find weight
 
 ### Lesson 2: Tournament protocol has a hidden seat bias in 3+ players
 
-`src/game/tournament.ts:113` pins agent A to seat 0 in 3+P matches, while agent B controls the remaining 2-3 seats. Consequences:
+`src/game/tournament.ts:113` originally pinned agent A to seat 0 in 3+P matches, while agent B controlled the remaining 2-3 seats. Consequences:
 
-- `v8 vs v8` in 3P seed=99 shows **-26pp** before anyone tunes anything.
-- All 3+P tournament numbers must subtract the self-match baseline to surface real signal.
-- The tuner's relative ranking remains valid (every candidate plays from the same seat-0 slot), but absolute advantage numbers are unreadable without correction.
-- Compounds with the fact that **seat 0 always starts** in our engine (`startingPlayer: 0` in `src/game/setup.ts`), giving A a slight first-mover advantage that partially offsets the many-opponents disadvantage.
+- `v8 vs v8` in 3P seed=99 showed **-26pp** before anyone tuned anything.
+- All 3+P tournament numbers had to subtract the self-match baseline to surface real signal.
+- The tuner's relative ranking remained valid (every candidate played from the same seat-0 slot), but absolute advantage numbers were unreadable without correction.
+- Compounded with the fact that **seat 0 always starts** in our engine (`startingPlayer: 0` in `src/game/setup.ts`), giving A a slight first-mover advantage that partially offset the many-opponents disadvantage.
+
+**Partial fix shipped**: rotate `seatA = g % numPlayers` across all player counts (was hardcoded to 0 in 3+P). The tuner now ranks candidates by *cross-seat* performance instead of seat-0-only — directly generalizing to the engine's real use cases (rollouts simulate all seats). What this *doesn't* fix is the structural "B controls N-1 seats so wins more games by sheer numbers" baseline asymmetry; self-match baselines remain non-zero in 3+P and baseline subtraction is still required for absolute readings. A proper fix would either round-robin multiple agents through every seat permutation, or compare both candidates' performance from each seat individually.
 
 ### Lesson 3: Greedy depth-1 produces too many draws
 

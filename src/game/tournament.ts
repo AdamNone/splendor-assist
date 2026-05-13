@@ -54,7 +54,13 @@ const buildSpecs = (opts: MatchOptions): GameSpec[] => {
     specs.push({
       gameIndex: g,
       stateSeed: Math.floor(rng() * 2_000_000_000),
-      seatA: numPlayers === 2 ? ((g % 2) as PlayerIndex) : 0,
+      // Rotate seatA across all seats so the tournament is symmetric:
+      // every Nth game, A plays each seat once. Without this the agent
+      // pinned to seat 0 inherits a first-mover advantage AND the
+      // "B controls more seats" disadvantage, both of which create
+      // measurement artifacts (v8-vs-v8 in 3P seed=99 showed -26pp).
+      // See diary/phase-04-tuning.md → "Lesson 2".
+      seatA: ((g % numPlayers) as PlayerIndex),
       numPlayers,
       maxTurnsPerGame: maxTurns,
     });
@@ -110,7 +116,8 @@ const runSequential = async (
 
   for (let g = 0; g < opts.games; g++) {
     let s = initialState(numPlayers, { rng });
-    const seatA: PlayerIndex = numPlayers === 2 ? ((g % 2) as PlayerIndex) : 0;
+    // Same seat rotation as the parallel path (see comment above).
+    const seatA: PlayerIndex = ((g % numPlayers) as PlayerIndex);
     let stalled = false;
     while (!isTerminal(s) && s.turnNumber < maxTurns) {
       if (legalActions(s).length === 0) {
