@@ -302,13 +302,9 @@ export type MctsStats = {
 const finalizeStats = (root: Node): MctsStats => {
   const numPlayers = root.totalReward.length;
   const me = root.currentPlayer;
-  const winRates = new Array<number>(numPlayers).fill(0);
-  if (root.visits > 0) {
-    for (let p = 0; p < numPlayers; p++) {
-      winRates[p] = (root.totalReward[p] ?? 0) / root.visits;
-    }
-  }
   const candidates: MctsCandidate[] = [];
+  let bestChild: Node | null = null;
+  let bestVisits = -1;
   for (const child of root.children) {
     const action = child.parentAction;
     if (action === null) continue;
@@ -316,11 +312,28 @@ const finalizeStats = (root: Node): MctsStats => {
       ? 0
       : (child.totalReward[me] ?? 0) / child.visits;
     candidates.push({ action, visits: child.visits, meanReward });
+    if (child.visits > bestVisits) {
+      bestVisits = child.visits;
+      bestChild = child;
+    }
   }
   candidates.sort((a, b) => b.visits - a.visits);
   const best = candidates[0];
   if (best === undefined) {
     throw new Error('mctsBestActionWithStats: no expansions performed');
+  }
+  // Use the best child's per-player average reward as winRates. This answers
+  // "given the agent plays the recommended action, what's each player's
+  // outcome?" — which is the question a UI pill wants to surface. The root's
+  // own totalReward averages across all explored actions (including the
+  // sub-optimal ones UCB visited for exploration), so it under-states the
+  // leader when one move is decisively winning.
+  const winRates = new Array<number>(numPlayers).fill(0);
+  const valueSource = bestChild !== null && bestChild.visits > 0 ? bestChild : root;
+  if (valueSource.visits > 0) {
+    for (let p = 0; p < numPlayers; p++) {
+      winRates[p] = (valueSource.totalReward[p] ?? 0) / valueSource.visits;
+    }
   }
   return {
     bestAction: best.action,
