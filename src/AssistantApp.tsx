@@ -21,7 +21,6 @@ import type {
   Color,
   ColorCount,
   GameState,
-  GemColor,
   GemPool,
   Noble,
   PlayerIndex,
@@ -605,10 +604,6 @@ export default function AssistantApp() {
     return out;
   };
 
-  const setSupplyGem = (c: GemColor, value: number) => {
-    setS((prev) => ({ ...prev, gemSupply: { ...prev.gemSupply, [c]: Math.max(0, value) } }));
-  };
-
   const toggleNoble = (n: Noble) => {
     setS((prev) => {
       const exists = prev.nobles.some((x) => x.id === n.id);
@@ -923,19 +918,19 @@ export default function AssistantApp() {
       <div className="board-col">
       <section className="card">
         <h2>Gem supply</h2>
-        <div className="gem-row">
+        <div className="readonly-row">
           {GEM_COLORS.map((c) => (
-            <div key={c} className="gem-cell">
-              <div
+            <div
+              key={c}
+              className="readonly-cell"
+              title={`${c} supply`}
+              aria-label={`gem supply ${c}: ${s.gemSupply[c]}`}
+            >
+              <span
                 className="swatch"
                 style={{ background: c === 'gold' ? GOLD_HEX : COLOR_HEX[c] }}
-                title={c}
               />
-              <StepCounter
-                value={s.gemSupply[c]}
-                onChange={(v) => setSupplyGem(c, v)}
-                ariaLabel={`supply ${c}`}
-              />
+              <span className="readonly-num">{s.gemSupply[c]}</span>
             </div>
           ))}
         </div>
@@ -1417,51 +1412,6 @@ function NoblePickerModal({
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function StepCounter({
-  value,
-  onChange,
-  ariaLabel,
-  min = 0,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-  ariaLabel: string;
-  min?: number;
-}) {
-  return (
-    <div className="stepper">
-      <button
-        type="button"
-        className="step-btn"
-        onClick={() => onChange(Math.max(min, value - 1))}
-        disabled={value <= min}
-        aria-label={`decrement ${ariaLabel}`}
-        tabIndex={-1}
-      >
-        −
-      </button>
-      <input
-        type="number"
-        min={min}
-        value={value}
-        onChange={(e) => onChange(Math.max(min, Number(e.target.value) || 0))}
-        onFocus={(e) => e.target.select()}
-        aria-label={ariaLabel}
-        className="step-input"
-      />
-      <button
-        type="button"
-        className="step-btn"
-        onClick={() => onChange(value + 1)}
-        aria-label={`increment ${ariaLabel}`}
-        tabIndex={-1}
-      >
-        +
-      </button>
     </div>
   );
 }
