@@ -1692,51 +1692,53 @@ export default function AssistantApp({
               ))}
             </div>
           </div>
-          <div className="sim-controls" title="Engine plays both sides">
-            <button
-              type="button"
-              className="sim-btn sim-toggle"
-              onClick={() => {
-                if (simRunning) {
-                  setSimRunning(false);
-                  return;
-                }
-                // If the board is blank (turnNumber=0 and no nobles), deal
-                // a fresh game first; otherwise resume from where we are.
-                if (s.turnNumber === 0 && s.nobles.length === 0) {
-                  startSimFromFresh();
-                } else {
-                  setSimRunning(true);
-                }
-              }}
-              disabled={gameOver}
-              aria-label={simRunning ? 'Pause simulation' : 'Run simulation'}
-            >
-              {simRunning ? '⏸' : '▶'} Sim
-            </button>
-            <button
-              type="button"
-              className="sim-btn"
-              onClick={simStepOnce}
-              disabled={simRunning || gameOver}
-              title="Apply the engine's recommended action for the current player"
-            >
-              Step
-            </button>
-            <div className="sim-speed">
-              <span className="sim-speed-label">slow</span>
-              <input
-                type="range"
-                min="200"
-                max="3000"
-                step="100"
-                value={3200 - simSpeedMs}
-                onChange={(e) => setSimSpeedMs(3200 - Number(e.target.value))}
-                aria-label="Simulation speed"
-              />
-              <span className="sim-speed-label">fast</span>
+          {mode === 'simulator' && (
+            <div className="sim-controls" title="Engine plays both sides">
+              <button
+                type="button"
+                className="sim-btn sim-toggle"
+                onClick={() => {
+                  if (simRunning) {
+                    setSimRunning(false);
+                    return;
+                  }
+                  // If the board is blank (turnNumber=0 and no nobles), deal
+                  // a fresh game first; otherwise resume from where we are.
+                  if (s.turnNumber === 0 && s.nobles.length === 0) {
+                    startSimFromFresh();
+                  } else {
+                    setSimRunning(true);
+                  }
+                }}
+                disabled={gameOver}
+                aria-label={simRunning ? 'Pause simulation' : 'Run simulation'}
+              >
+                {simRunning ? '⏸' : '▶'} Sim
+              </button>
+              <button
+                type="button"
+                className="sim-btn"
+                onClick={simStepOnce}
+                disabled={simRunning || gameOver}
+                title="Apply the engine's recommended action for the current player"
+              >
+                Step
+              </button>
+              <div className="sim-speed">
+                <span className="sim-speed-label">slow</span>
+                <input
+                  type="range"
+                  min="200"
+                  max="3000"
+                  step="100"
+                  value={3200 - simSpeedMs}
+                  onChange={(e) => setSimSpeedMs(3200 - Number(e.target.value))}
+                  aria-label="Simulation speed"
+                />
+                <span className="sim-speed-label">fast</span>
+              </div>
             </div>
-          </div>
+          )}
           <div className="header-actions">
             <button
               type="button"
@@ -1747,14 +1749,16 @@ export default function AssistantApp({
             >
               ↶
             </button>
-            <button
-              type="button"
-              className="setup-btn"
-              onClick={setupFreshDeal}
-              title="Deal 4 face-up cards per tier and numPlayers+1 nobles at random — no auto-play"
-            >
-              🎲 Setup
-            </button>
+            {mode === 'simulator' && (
+              <button
+                type="button"
+                className="setup-btn"
+                onClick={setupFreshDeal}
+                title="Deal 4 face-up cards per tier and numPlayers+1 nobles at random — no auto-play"
+              >
+                🎲 Setup
+              </button>
+            )}
             <button type="button" className="new-game-btn" onClick={resetGame}>
               New game
             </button>
