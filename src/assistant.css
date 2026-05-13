@@ -372,6 +372,13 @@
   color: #92400e;
   margin-top: 4px;
 }
+.chart-help {
+  font-size: 11px;
+  color: #6b7280;
+  line-height: 1.5;
+  margin: 4px 0 8px;
+  font-style: italic;
+}
 .chart-cf-title {
   font-size: 11px;
   color: #6b7280;

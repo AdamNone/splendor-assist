@@ -2069,6 +2069,13 @@ export default function AssistantApp({
               .map((_, i) => playerLabel(i))}
             series={buildWinLikelihoodSeries(s.gameLog, s.numPlayers)}
           />
+          <p className="chart-help">
+            Each turn's column sums to 100%. Band thickness = engine's
+            confidence that player will win, derived by softmax over a
+            heuristic state evaluation. Roughly 1/N each while positions
+            are comparable; the leader's band widens as they pull ahead;
+            the final ply snaps to the actual winner.
+          </p>
           <HistoryChart
             yLabel="Prestige over time"
             yMax={Math.max(
@@ -2226,8 +2233,20 @@ const CHART_PALETTE = ['#1f2937', '#dc2626', '#2563eb', '#15803d'];
  * Temperature ≈ 5 picked to match the engine's existing `squash` scale
  * (`sigmoid(x/5)`) so the math sits in the same regime as MCTS.
  */
-const SOFTMAX_TEMPERATURE = 5;
+// Temperature picked empirically: at T=3 a 5-point evaluator gap yields
+// ~83% for the leader, a 10-point gap ~95% — enough to show real late-game
+// divergence without making 2-point fluctuations look decisive. Lower
+// would over-react to noise; higher (e.g. 5) leaves the bands too flat.
+const SOFTMAX_TEMPERATURE = 3;
+
 const winLikelihoodAtState = (state: GameState, numPlayers: number): number[] => {
+  // Terminal-state shortcut: once the round is locked in, the winner is the
+  // winner. Forces the chart's final pixel to a clean 100% / 0% rather than
+  // leaving it as the softmax estimate (which is sharp but not exactly 100).
+  if (isTerminal(state)) {
+    const w = winner(state);
+    return Array.from({ length: numPlayers }, (_, i) => (i === w ? 1 : 0));
+  }
   const scores = Array.from({ length: numPlayers }, (_, i) =>
     evaluateV3(state, i as PlayerIndex),
   );
