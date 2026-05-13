@@ -844,8 +844,51 @@ export default function AssistantApp() {
     <div className="assistant">
       <header>
         <div className="header-row">
-          <div>
-            <h1>Splendor Assistant</h1>
+          <h1>Splendor Assistant</h1>
+          <div className="field">
+            <label>Players</label>
+            <div className="pill-row">
+              {[2, 3, 4].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className={`pill ${s.numPlayers === n ? 'active' : ''}`}
+                  onClick={() => setNumPlayers(n as 2 | 3 | 4)}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="field">
+            <label>Turn</label>
+            <div className="pill-row">
+              {Array.from({ length: s.numPlayers }, (_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  className={`pill ${s.currentPlayer === i ? 'active' : ''}`}
+                  onClick={() => setCurrentPlayer(i as PlayerIndex)}
+                >
+                  {playerLabel(i)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="field">
+            <label>You</label>
+            <div className="pill-row">
+              {Array.from({ length: s.numPlayers }, (_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  className={`pill ${s.mainPlayer === i ? 'active' : ''}`}
+                  onClick={() => setMainPlayer(i as PlayerIndex)}
+                >
+                  {playerLabel(i)}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="header-actions">
             <button
@@ -855,7 +898,7 @@ export default function AssistantApp() {
               disabled={history.length === 0}
               title={history.length === 0 ? 'Nothing to undo' : 'Restore the previous state'}
             >
-              ↶ Undo
+              ↶
             </button>
             <button type="button" className="new-game-btn" onClick={resetGame}>
               New game
@@ -863,56 +906,6 @@ export default function AssistantApp() {
           </div>
         </div>
       </header>
-
-      <section className="setup-strip">
-        <div className="field">
-          <label>Players</label>
-          <div className="pill-row">
-            {[2, 3, 4].map((n) => (
-              <button
-                key={n}
-                type="button"
-                className={`pill ${s.numPlayers === n ? 'active' : ''}`}
-                onClick={() => setNumPlayers(n as 2 | 3 | 4)}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="field">
-          <label>Whose turn</label>
-          <div className="pill-row">
-            {Array.from({ length: s.numPlayers }, (_, i) => (
-              <button
-                key={i}
-                type="button"
-                className={`pill ${s.currentPlayer === i ? 'active' : ''}`}
-                onClick={() => setCurrentPlayer(i as PlayerIndex)}
-              >
-                {playerLabel(i)}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="field">
-          <label>You are</label>
-          <div className="pill-row">
-            {Array.from({ length: s.numPlayers }, (_, i) => (
-              <button
-                key={i}
-                type="button"
-                className={`pill ${s.mainPlayer === i ? 'active' : ''}`}
-                onClick={() => setMainPlayer(i as PlayerIndex)}
-              >
-                {playerLabel(i)}
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
 
       <div className="body-grid">
       <div className="board-col">
@@ -927,7 +920,7 @@ export default function AssistantApp() {
               aria-label={`gem supply ${c}: ${s.gemSupply[c]}`}
             >
               <span
-                className="swatch"
+                className="swatch gem"
                 style={{ background: c === 'gold' ? GOLD_HEX : COLOR_HEX[c] }}
               />
               <span className="readonly-num">{s.gemSupply[c]}</span>
@@ -1487,7 +1480,7 @@ function PlayerPanel({
             aria-label={`P${idx} gem ${c}: ${player.gems[c]}`}
           >
             <span
-              className="swatch"
+              className="swatch gem"
               style={{ background: c === 'gold' ? GOLD_HEX : COLOR_HEX[c] }}
             />
             <span className="readonly-num">{player.gems[c]}</span>
