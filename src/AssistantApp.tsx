@@ -1098,9 +1098,19 @@ export default function AssistantApp() {
   };
 
   /**
-   * Start (or restart) a simulation from a freshly-dealt position. Replaces
-   * the current state with `numPlayers+1` dealt nobles and 4 face-up cards
-   * per tier, then engages auto-play.
+   * Replace state with a freshly-dealt position (4 face-up cards per tier,
+   * numPlayers+1 nobles, default supply). Use as a starting point for
+   * playing manually or as the seed for a simulation.
+   */
+  const setupFreshDeal = () => {
+    setS((prev) => buildFreshAssistantState(prev.numPlayers, prev.mainPlayer, prev.playerNames));
+    setRecommendation(null);
+    setErrors([]);
+    setSimRunning(false);
+  };
+
+  /**
+   * Deal a fresh game and immediately start auto-play.
    */
   const startSimFromFresh = () => {
     setS((prev) => buildFreshAssistantState(prev.numPlayers, prev.mainPlayer, prev.playerNames));
@@ -1436,6 +1446,14 @@ export default function AssistantApp() {
               title={history.length === 0 ? 'Nothing to undo' : 'Restore the previous state'}
             >
               ↶
+            </button>
+            <button
+              type="button"
+              className="setup-btn"
+              onClick={setupFreshDeal}
+              title="Deal 4 face-up cards per tier and numPlayers+1 nobles at random — no auto-play"
+            >
+              🎲 Setup
             </button>
             <button type="button" className="new-game-btn" onClick={resetGame}>
               New game
