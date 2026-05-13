@@ -616,36 +616,29 @@ input[type='number']:focus {
 
 .noble-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(96px, max-content));
+  gap: 8px;
 }
-.noble-card {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  align-items: flex-start;
-  padding: 8px 10px;
-  border: 1px solid #d1d5db;
-  background: #fff;
-  border-radius: 8px;
-  font-family: inherit;
-  font-size: 12px;
+.noble-tile {
+  appearance: none;
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  padding: 2px;
   cursor: pointer;
-  text-align: left;
+  font-family: inherit;
+  opacity: 0.45;
+  transition: opacity 120ms ease, border-color 120ms ease, transform 120ms ease;
 }
-.noble-card:hover { background: #f9fafb; }
-.noble-card.selected {
-  background: #1f2937;
-  color: #fff;
+.noble-tile:hover { opacity: 0.85; }
+.noble-tile.selected {
+  opacity: 1;
   border-color: #1f2937;
 }
-.noble-id {
-  font-weight: 600;
-  font-family: ui-monospace, Menlo, monospace;
-}
-.noble-req {
-  font-size: 11px;
-  opacity: 0.85;
+.noble-art {
+  background: linear-gradient(155deg, #fdf6e3 0%, #f1e4c6 100%);
+  border: 1px solid #d6c190;
+  box-shadow: 0 1px 2px rgba(120, 90, 30, 0.18);
 }
 
 .player-panel {

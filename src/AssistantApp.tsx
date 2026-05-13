@@ -1025,12 +1025,12 @@ export default function AssistantApp() {
               <button
                 key={n.id}
                 type="button"
-                className={`noble-card ${selected ? 'selected' : ''}`}
+                className={`noble-tile ${selected ? 'selected' : ''}`}
                 onClick={() => toggleNoble(n)}
                 title={describeNobleRequirement(n)}
+                aria-label={`Noble ${n.id} requiring ${describeNobleRequirement(n)}`}
               >
-                <span className="noble-id">{n.id}</span>
-                <span className="noble-req">{describeNobleRequirement(n)}</span>
+                <NobleArt noble={n} size="small" />
               </button>
             );
           })}
@@ -1229,6 +1229,22 @@ const describeNobleRequirement = (n: Noble): string =>
 // =============================================================================
 // Card visuals — used both as face-up slots and in the picker grid.
 // =============================================================================
+
+function NobleArt({ noble, size = 'normal' }: { noble: Noble; size?: 'normal' | 'small' }) {
+  return (
+    <div className={`card-art noble-art ${size === 'small' ? 'small' : ''} light`}>
+      <div className="card-prestige">{noble.prestige}</div>
+      <div className="card-cost">
+        {COLORS.filter((c) => noble.requirement[c] > 0).map((c) => (
+          <div key={c} className="card-cost-pip">
+            <span className="cost-pip-swatch" style={{ background: COLOR_HEX[c] }} />
+            <span className="cost-pip-num">{noble.requirement[c]}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function CardArt({ card, size = 'normal' }: { card: Card; size?: 'normal' | 'small' }) {
   const bg = COLOR_HEX[card.bonus];
