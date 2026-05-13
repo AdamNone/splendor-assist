@@ -619,36 +619,6 @@ export default function AssistantApp() {
     });
   };
 
-  const setPlayerBonus = (idx: number, c: Color, value: number) => {
-    setS((prev) => {
-      const players = prev.players.slice();
-      const p = players[idx];
-      if (p === undefined) return prev;
-      players[idx] = { ...p, bonuses: { ...p.bonuses, [c]: Math.max(0, value) } };
-      return { ...prev, players };
-    });
-  };
-
-  const setPlayerGem = (idx: number, c: GemColor, value: number) => {
-    setS((prev) => {
-      const players = prev.players.slice();
-      const p = players[idx];
-      if (p === undefined) return prev;
-      players[idx] = { ...p, gems: { ...p.gems, [c]: Math.max(0, value) } };
-      return { ...prev, players };
-    });
-  };
-
-  const setPlayerPrestige = (idx: number, value: number) => {
-    setS((prev) => {
-      const players = prev.players.slice();
-      const p = players[idx];
-      if (p === undefined) return prev;
-      players[idx] = { ...p, prestige: Math.max(0, value) };
-      return { ...prev, players };
-    });
-  };
-
   const setCurrentPlayer = (idx: PlayerIndex) => {
     setS((prev) => ({ ...prev, currentPlayer: idx }));
   };
@@ -1061,9 +1031,6 @@ export default function AssistantApp() {
             player={p}
             unavailableIds={usedCardIds}
             onName={(name) => setPlayerName(idx, name)}
-            onBonus={(c, v) => setPlayerBonus(idx, c, v)}
-            onGem={(c, v) => setPlayerGem(idx, c, v)}
-            onPrestige={(v) => setPlayerPrestige(idx, v)}
             onReservedAdd={(card) =>
               setS((prev) => {
                 const players = prev.players.slice();
@@ -1532,9 +1499,6 @@ function PlayerPanel({
   player,
   unavailableIds,
   onName,
-  onBonus,
-  onGem,
-  onPrestige,
   onReservedAdd,
   onReservedRemove,
 }: {
@@ -1544,9 +1508,6 @@ function PlayerPanel({
   player: PlayerForm;
   unavailableIds: Set<string>;
   onName: (name: string) => void;
-  onBonus: (c: Color, v: number) => void;
-  onGem: (c: GemColor, v: number) => void;
-  onPrestige: (v: number) => void;
   onReservedAdd: (card: Card) => void;
   onReservedRemove: (i: number) => void;
 }) {
@@ -1569,44 +1530,47 @@ function PlayerPanel({
       </div>
       <div className="player-row">
         <span className="player-label">Bonuses</span>
-        <div className="gem-row">
+        <div className="readonly-row">
           {COLORS.map((c) => (
-            <div key={c} className="gem-cell">
-              <div className="swatch" style={{ background: COLOR_HEX[c] }} />
-              <StepCounter
-                value={player.bonuses[c]}
-                onChange={(v) => onBonus(c, v)}
-                ariaLabel={`P${idx} bonus ${c}`}
-              />
+            <div
+              key={c}
+              className="readonly-cell"
+              title={`${c} bonus`}
+              aria-label={`P${idx} bonus ${c}: ${player.bonuses[c]}`}
+            >
+              <span className="swatch" style={{ background: COLOR_HEX[c] }} />
+              <span className="readonly-num">{player.bonuses[c]}</span>
             </div>
           ))}
         </div>
       </div>
       <div className="player-row">
         <span className="player-label">Gems</span>
-        <div className="gem-row">
+        <div className="readonly-row">
           {GEM_COLORS.map((c) => (
-            <div key={c} className="gem-cell">
-              <div
+            <div
+              key={c}
+              className="readonly-cell"
+              title={`${c} gems`}
+              aria-label={`P${idx} gem ${c}: ${player.gems[c]}`}
+            >
+              <span
                 className="swatch"
                 style={{ background: c === 'gold' ? GOLD_HEX : COLOR_HEX[c] }}
               />
-              <StepCounter
-                value={player.gems[c]}
-                onChange={(v) => onGem(c, v)}
-                ariaLabel={`P${idx} gem ${c}`}
-              />
+              <span className="readonly-num">{player.gems[c]}</span>
             </div>
           ))}
         </div>
       </div>
       <div className="player-row">
         <span className="player-label">Prestige</span>
-        <StepCounter
-          value={player.prestige}
-          onChange={onPrestige}
-          ariaLabel={`P${idx} prestige`}
-        />
+        <span
+          className="readonly-num readonly-prestige"
+          aria-label={`P${idx} prestige: ${player.prestige}`}
+        >
+          {player.prestige}
+        </span>
       </div>
 
       <div className="player-row reserved-row">
