@@ -884,6 +884,16 @@ input[type='number']:focus {
   font-variant-numeric: tabular-nums;
   cursor: help;
 }
+.noble-qualify-pill {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  background: linear-gradient(155deg, #fdf6e3 0%, #f1e4c6 100%);
+  color: #78350f;
+  border: 1px solid #d6c190;
+  border-radius: 999px;
+  cursor: help;
+}
 .player-row {
   display: grid;
   grid-template-columns: 60px 1fr;

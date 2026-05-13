@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 // useMemo is used inside CardPickerModal below.
 import { apply, isTerminal, winner } from './game/apply';
-import { computePayment } from './game/gems';
+import { computePayment, meetsNobleRequirement } from './game/gems';
 import { mctsBestActionWithStats } from './game/mcts';
 import type { MctsCandidate } from './game/mcts';
 import { evaluateV3 } from './game/evaluate';
@@ -672,6 +672,17 @@ export default function AssistantApp() {
   // identity, replacing the guess so subsequent recommendations are sound.
   const [pendingBlindReserveTier, setPendingBlindReserveTier] =
     useState<Tier | null>(null);
+  // When a turn auto-awards a noble but the player was eligible for
+  // multiple, hold the post-apply state and the alternatives so the user
+  // can swap before commit. apply() picks the first qualifying noble in
+  // order; rare but worth honouring the player's choice.
+  const [pendingNobleChoice, setPendingNobleChoice] = useState<{
+    claimerIdx: number;
+    autoAwarded: Noble;
+    alternatives: Noble[];
+    nextState: GameState;
+    seenIds: string[];
+  } | null>(null);
 
   const pushHistory = (prev: AssistantState) => {
     setHistory((h) => [prev, ...h].slice(0, MAX_HISTORY));
@@ -898,36 +909,104 @@ export default function AssistantApp() {
    *
    * Saves the current form state to history so the user can undo.
    */
+  // Compute seenIds after applying — adds every face-up card and every
+  // reserved card that's visible to us. Idempotent.
+  const collectSeen = (next: GameState, prev: string[]): string[] => {
+    const seen = new Set(prev);
+    for (const p of next.players) {
+      for (const r of p.reserved) seen.add(r.card.id);
+    }
+    for (const tier of TIERS) {
+      for (const c of next.faceUp[tier]) {
+        if (c !== null) seen.add(c.id);
+      }
+    }
+    return Array.from(seen);
+  };
+
+  /**
+   * If applying the action just auto-awarded a noble AND the claimer would
+   * have qualified for at least one other noble on the board, returns
+   * the pending-choice payload so the UI can prompt. Otherwise null.
+   */
+  const detectMultiNobleChoice = (
+    pre: GameState,
+    post: GameState,
+    seenIds: string[],
+  ): typeof pendingNobleChoice => {
+    const claimerIdx = pre.currentPlayer;
+    const claimed = pre.nobles.find((n) => !post.nobles.some((x) => x.id === n.id));
+    if (claimed === undefined) return null;
+    const claimer = post.players[claimerIdx];
+    if (claimer === undefined) return null;
+    const alternatives = pre.nobles.filter(
+      (n) => n.id !== claimed.id && meetsNobleRequirement(claimer.bonuses, n.requirement),
+    );
+    if (alternatives.length === 0) return null;
+    return {
+      claimerIdx,
+      autoAwarded: claimed,
+      alternatives,
+      nextState: post,
+      seenIds,
+    };
+  };
+
+  const commitApplied = (next: GameState, seenIds: string[]) => {
+    setS((prev) => ({
+      ...fromGameState(next, prev),
+      seenIds,
+    }));
+    setRecommendation(null);
+    setErrors([]);
+  };
+
   const onApply = (action: Action) => {
     try {
       const state = buildGameState(s);
       const next = apply(state, action);
       pushHistory(s);
-      // Roll seenIds forward. Most actions touch only already-seen cards
-      // (faceUp source), but a blind reserve from the deck top introduces
-      // a new card the user hasn't entered — the engine just drew it from
-      // our synthetic deck, so its identity is `next.players[*].reserved[*]`.
-      // Union'ing every visible card ID covers that case without special-
-      // casing the action type.
-      const seen = new Set(s.seenIds);
-      for (const p of next.players) {
-        for (const r of p.reserved) seen.add(r.card.id);
+      const seen = collectSeen(next, s.seenIds);
+      const choice = detectMultiNobleChoice(state, next, seen);
+      if (choice !== null) {
+        setPendingNobleChoice(choice);
+        return; // wait for the user to resolve
       }
-      for (const tier of TIERS) {
-        for (const c of next.faceUp[tier]) {
-          if (c !== null) seen.add(c.id);
-        }
-      }
-      setS((prev) => ({
-        ...fromGameState(next, prev),
-        seenIds: Array.from(seen),
-      }));
-      setRecommendation(null);
-      setErrors([]);
+      commitApplied(next, seen);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setErrors([`Apply failed: ${message}`]);
     }
+  };
+
+  /**
+   * Resolve a pending multi-noble choice. If the user picks a different
+   * noble than the engine auto-awarded, swap: put the auto-awarded back on
+   * the board and take the chosen one. All nobles in the base game are
+   * worth +3 prestige so the prestige delta is unchanged.
+   */
+  const onResolveNobleChoice = (chosen: Noble) => {
+    if (pendingNobleChoice === null) return;
+    const { claimerIdx, autoAwarded, nextState, seenIds } = pendingNobleChoice;
+    let finalState = nextState;
+    if (chosen.id !== autoAwarded.id) {
+      // Deep-ish copy of the bits we mutate so we don't pollute the
+      // captured nextState (it might still be referenced by closures).
+      const players = nextState.players.slice();
+      const target = players[claimerIdx];
+      if (target !== undefined) {
+        const updatedNobles = target.nobles
+          .filter((n) => n.id !== autoAwarded.id)
+          .concat([chosen]);
+        players[claimerIdx] = { ...target, nobles: updatedNobles };
+      }
+      const boardNobles = nextState.nobles
+        .filter((n) => n.id !== chosen.id)
+        .concat([autoAwarded]);
+      finalState = { ...nextState, players, nobles: boardNobles };
+    }
+    commitApplied(finalState, seenIds);
+    setPendingNobleChoice(null);
   };
 
   /**
@@ -1320,6 +1399,14 @@ export default function AssistantApp() {
             onClose={() => setPendingBlindReserveTier(null)}
           />
         )}
+        {pendingNobleChoice !== null && (
+          <NobleChoiceModal
+            claimerName={playerLabel(pendingNobleChoice.claimerIdx)}
+            autoAwarded={pendingNobleChoice.autoAwarded}
+            alternatives={pendingNobleChoice.alternatives}
+            onPick={onResolveNobleChoice}
+          />
+        )}
       </section>
 
       </div>
@@ -1335,6 +1422,9 @@ export default function AssistantApp() {
             player={p}
             unavailableIds={usedCardIds}
             winRate={winShares?.[idx]}
+            qualifyingNobles={s.nobles.filter((n) =>
+              meetsNobleRequirement(p.bonuses, n.requirement),
+            )}
             highlightReservedIndex={
               highlightedReserved !== null && highlightedReserved.playerIdx === idx
                 ? highlightedReserved.index
@@ -1708,6 +1798,51 @@ function CardPickerModal({
   );
 }
 
+// Shown when an action would qualify the actor for more than one noble.
+// Engine auto-awarded the first in order; this lets the user override.
+function NobleChoiceModal({
+  claimerName,
+  autoAwarded,
+  alternatives,
+  onPick,
+}: {
+  claimerName: string;
+  autoAwarded: Noble;
+  alternatives: Noble[];
+  onPick: (chosen: Noble) => void;
+}) {
+  const all = [autoAwarded, ...alternatives];
+  return (
+    <div className="modal-backdrop">
+      <div
+        className="modal"
+        role="dialog"
+        aria-label="Pick a noble to claim"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="modal-header">
+          <h3>{claimerName} qualifies for {all.length} nobles — claim which?</h3>
+        </div>
+        <div className="modal-body">
+          <div className="noble-grid">
+            {all.map((n) => (
+              <button
+                key={n.id}
+                type="button"
+                className={`noble-tile selected`}
+                onClick={() => onPick(n)}
+                title={`Claim noble (${COLORS.filter((c) => n.requirement[c] > 0).map((c) => `${n.requirement[c]} ${c}`).join(' + ')})`}
+              >
+                <NobleArt noble={n} />
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NoblePickerModal({
   unavailableIds,
   onPick,
@@ -1772,6 +1907,7 @@ function PlayerPanel({
   player,
   unavailableIds,
   winRate,
+  qualifyingNobles,
   highlightReservedIndex,
   onName,
   onReservedAdd,
@@ -1783,6 +1919,7 @@ function PlayerPanel({
   player: PlayerForm;
   unavailableIds: Set<string>;
   winRate: number | undefined;
+  qualifyingNobles: Noble[];
   highlightReservedIndex: number | undefined;
   onName: (name: string) => void;
   onReservedAdd: (card: Card) => void;
@@ -1811,6 +1948,18 @@ function PlayerPanel({
           aria-label={`Name for player ${idx}`}
         />
         {isCurrent && <span className="badge">to move</span>}
+        {qualifyingNobles.length > 0 && (
+          <span
+            className="noble-qualify-pill"
+            title={
+              qualifyingNobles.length === 1
+                ? `Qualifies for a noble (${describeNobleRequirement(qualifyingNobles[0]!)}) — claims it at end of turn`
+                : `Qualifies for ${qualifyingNobles.length} nobles — can claim one per turn`
+            }
+          >
+            👑 ×{qualifyingNobles.length}
+          </span>
+        )}
         {winRate !== undefined && (
           <span
             className="winchance-pill"
