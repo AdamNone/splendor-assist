@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 // useMemo is used inside CardPickerModal below.
-import { apply, isTerminal, winner } from './game/apply';
+import { apply, applyAllReveals, isTerminal, winner } from './game/apply';
 import { computePayment, meetsNobleRequirement } from './game/gems';
 import { mctsBestActionWithStats } from './game/mcts';
 import type { MctsCandidate } from './game/mcts';
@@ -1085,7 +1085,11 @@ export default function AssistantApp() {
         evalFn: evaluateV3,
         rng: seededRng(Date.now() & 0xffff_ffff),
       });
-      const next = apply(state, stats.bestAction);
+      // apply() leaves emptied face-up slots as null + queues a reveal in
+      // `pendingReveals`. In manual play the user enters the revealed card;
+      // in sim mode we drive both sides ourselves, so resolve all pending
+      // reveals automatically (deterministic — top of the synthetic deck).
+      const next = applyAllReveals(apply(state, stats.bestAction));
       pushHistory(s);
       const seen = collectSeen(next, s.seenIds);
       commitApplied(next, seen);
