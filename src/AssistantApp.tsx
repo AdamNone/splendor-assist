@@ -878,18 +878,6 @@ export default function AssistantApp() {
    * Saves the current form state to history so the user can undo.
    */
   const onApply = (action: Action) => {
-    // Special case: the MAIN player drawing blindly from a deck. In real
-    // play they see the card — so we pause here, prompt them to identify
-    // it, and only then commit. Opponents go through the normal path
-    // because we genuinely don't know what they drew.
-    if (
-      action.type === 'reserve'
-      && action.source.kind === 'deck'
-      && s.currentPlayer === s.mainPlayer
-    ) {
-      setPendingBlindReserveTier(action.source.tier);
-      return;
-    }
     try {
       const state = buildGameState(s);
       const next = apply(state, action);
@@ -921,10 +909,29 @@ export default function AssistantApp() {
     }
   };
 
-  // Commit a main-player blind reserve once the user has identified the
-  // drawn card. We apply the reserve as if `kind: 'deck'`, then overwrite
-  // the engine's guessed identity with the user's actual card and clear
-  // the blind flag on that entry (the main player knows what they have).
+  /**
+   * Applies an action that came from the engine's recommendation (whether
+   * for the main player or via the "Suggest" button for an opponent). The
+   * user is effectively playing both sides at that point — they know every
+   * card the engine is reasoning about. So a blind reserve from the deck
+   * must be identified before commit; otherwise the engine guesses and the
+   * "blind" player would be running on stale info.
+   *
+   * Manual opponent-picker entries still go through plain onApply, where
+   * blind reserves stay genuinely unknown.
+   */
+  const applyRecommendation = (action: Action) => {
+    if (action.type === 'reserve' && action.source.kind === 'deck') {
+      setPendingBlindReserveTier(action.source.tier);
+      return;
+    }
+    onApply(action);
+  };
+
+  // Commit a recommendation-sourced blind reserve once the user has
+  // identified the drawn card. We apply the reserve as if `kind: 'deck'`,
+  // then overwrite the engine's guessed identity with the user's actual
+  // card and clear the blind flag on that entry.
   const onConfirmBlindReserve = (actualCard: Card) => {
     const tier = pendingBlindReserveTier;
     if (tier === null) return;
@@ -1224,7 +1231,11 @@ export default function AssistantApp() {
             tier={pendingBlindReserveTier}
             selected={null}
             unavailableIds={usedCardIds}
-            title={`Which T${pendingBlindReserveTier} card did you draw?`}
+            title={
+              s.currentPlayer === s.mainPlayer
+                ? `Which T${pendingBlindReserveTier} card did you draw?`
+                : `Which T${pendingBlindReserveTier} card did ${playerLabel(s.currentPlayer)} draw?`
+            }
             onPick={(picked) => {
               if (picked !== null) onConfirmBlindReserve(picked);
               else setPendingBlindReserveTier(null);
@@ -1330,7 +1341,7 @@ export default function AssistantApp() {
               <button
                 type="button"
                 className="rec-option recommended"
-                onClick={() => onApply(recommendation.bestAction)}
+                onClick={() => applyRecommendation(recommendation.bestAction)}
                 disabled={thinking}
               >
                 <div className="rec-option-left">
@@ -1376,7 +1387,7 @@ export default function AssistantApp() {
                         key={i}
                         type="button"
                         className="rec-option alt"
-                        onClick={() => onApply(a.action)}
+                        onClick={() => applyRecommendation(a.action)}
                         disabled={thinking}
                       >
                         <span className="rec-option-summary">
