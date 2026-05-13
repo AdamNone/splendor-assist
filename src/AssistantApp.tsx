@@ -1093,15 +1093,18 @@ export default function AssistantApp() {
       </section>
 
       <section className="card recommend">
-        {s.currentPlayer !== s.mainPlayer ? (
+        {s.currentPlayer !== s.mainPlayer && (
           <OpponentTurnPanel
             assistantState={s}
             playerLabel={playerLabel}
             onApply={onApply}
             onSkip={() => setCurrentPlayer(s.mainPlayer)}
+            onSuggest={() => void runMcts(500)}
+            thinking={thinking}
             errors={errors}
           />
-        ) : (
+        )}
+        {s.currentPlayer === s.mainPlayer && (
           <>
             <div className="recommend-header">
               <strong>Your turn ({playerLabel(s.mainPlayer)})</strong>
@@ -1124,22 +1127,33 @@ export default function AssistantApp() {
                 ))}
               </div>
             )}
-            {recommendation && (
-              <div className="recommendation">
-                <button
-                  type="button"
-                  className="rec-option recommended"
-                  onClick={() => onApply(recommendation.bestAction)}
-                  disabled={thinking}
-                >
-                  <div className="rec-option-left">
-                    <span className="rec-option-tag">Recommended</span>
-                    <span className="rec-option-summary">
-                      {namifyNarration(recommendation.summary)}
-                    </span>
-                  </div>
-                  <span className="rec-option-cta">Click to apply →</span>
-                </button>
+          </>
+        )}
+        {recommendation && (
+          <>
+            {s.currentPlayer !== s.mainPlayer && (
+              <div className="rec-for-opponent-label">
+                Suggested for {playerLabel(recommendation.currentPlayer)} — clicking
+                applies it as their move
+              </div>
+            )}
+            <div className="recommendation">
+              <button
+                type="button"
+                className="rec-option recommended"
+                onClick={() => onApply(recommendation.bestAction)}
+                disabled={thinking}
+              >
+                <div className="rec-option-left">
+                  <span className="rec-option-tag">
+                    {s.currentPlayer === s.mainPlayer ? 'Recommended' : 'Suggested'}
+                  </span>
+                  <span className="rec-option-summary">
+                    {namifyNarration(recommendation.summary)}
+                  </span>
+                </div>
+                <span className="rec-option-cta">Click to apply →</span>
+              </button>
 
                 {recommendation.explanation.length > 0 && (
                   <div className="why">
@@ -1216,7 +1230,6 @@ export default function AssistantApp() {
                   MCTS · {recommendation.rootVisits} iter · {recommendation.thinkingMs} ms
                 </div>
               </div>
-            )}
           </>
         )}
       </section>
@@ -1605,12 +1618,16 @@ function OpponentTurnPanel({
   playerLabel,
   onApply,
   onSkip,
+  onSuggest,
+  thinking,
   errors,
 }: {
   assistantState: AssistantState;
   playerLabel: (idx: number) => string;
   onApply: (action: Action) => void;
   onSkip: () => void;
+  onSuggest: () => void;
+  thinking: boolean;
   errors: string[];
 }) {
   const state = useMemo(() => buildGameState(assistantState), [assistantState]);
@@ -1927,9 +1944,20 @@ function OpponentTurnPanel({
             reserve, etc.).
           </p>
         </div>
-        <button type="button" className="opp-skip-btn" onClick={onSkip}>
-          Skip {oppName} (they passed) →
-        </button>
+        <div className="opp-header-actions">
+          <button
+            type="button"
+            className="opp-suggest-btn"
+            onClick={onSuggest}
+            disabled={thinking}
+            title={`Run MCTS as if ${oppName} were choosing optimally`}
+          >
+            {thinking ? 'Thinking…' : `Suggest ${oppName}'s move`}
+          </button>
+          <button type="button" className="opp-skip-btn" onClick={onSkip}>
+            Skip {oppName} (they passed) →
+          </button>
+        </div>
       </div>
 
       {errors.length > 0 && (
