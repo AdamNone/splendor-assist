@@ -1095,6 +1095,7 @@ export default function AssistantApp() {
     const state = buildGameState(s);
     if (isTerminal(state)) return false;
     try {
+      const start = Date.now();
       const stats = mctsBestActionWithStats(state, {
         iterations: 300,
         evalFn: evaluateV3,
@@ -1106,8 +1107,32 @@ export default function AssistantApp() {
       // reveals automatically (deterministic — top of the synthetic deck).
       const next = applyAllReveals(apply(state, stats.bestAction));
       pushHistory(s);
-      const seen = collectSeen(next, s.seenIds);
-      commitApplied(next, seen);
+      const seenIds = collectSeen(next, s.seenIds);
+      // Inline the commit instead of using commitApplied, so we can swap
+      // the cleared recommendation for one built from this step's MCTS
+      // stats. Otherwise the win-chance pills go blank during sim because
+      // auto-recommend is paused while simRunning.
+      setS((prev) => ({
+        ...fromGameState(next, prev),
+        seenIds,
+      }));
+      setRecommendation({
+        bestAction: stats.bestAction,
+        summary: describeAction(state, stats.bestAction),
+        explanation: [],
+        strategy: [],
+        winRates: stats.winRates,
+        currentPlayer: state.currentPlayer,
+        rootVisits: stats.rootVisits,
+        alternatives: stats.candidates.slice(1, 5).map((c) => ({
+          action: c.action,
+          summary: describeAction(state, c.action),
+          visits: c.visits,
+          meanReward: c.meanReward,
+        })),
+        thinkingMs: Date.now() - start,
+      });
+      setErrors([]);
       return true;
     } catch (err) {
       setErrors([`Sim step failed: ${err instanceof Error ? err.message : String(err)}`]);
