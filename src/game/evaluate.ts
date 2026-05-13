@@ -227,7 +227,34 @@ export const evaluateV3: Feature = (state, player) =>
   evaluateWith(FEATURES_V3, state, player);
 
 // `evaluate` always points at the current best evaluator. v3 (with
-// opponent_threat) currently leads. Rejected en route: concentration
-// (Experiment 3), engine_value (Experiment 4), gem_pressure (Experiment 5).
-// See diary/phase-01-evaluator.md.
+// opponent_threat) currently leads. Rejected en route under depth-1
+// greedy: concentration (Experiment 3), engine_value (Experiment 4),
+// gem_pressure (Experiment 5). See diary/phase-01-evaluator.md.
 export const evaluate: Feature = evaluateV3;
+
+// === Experimental v3-plus variants used to retest rejected features ===
+// Each variant adds one previously-rejected feature back on top of v3 at
+// the same weight that lost at depth 1. The Phase 2 retest asks: does
+// depth-3 search redeem any of these? Used by `search-d3-conc` etc. in
+// the CLI and the Experiment 10 tournament.
+
+export const FEATURES_V3_PLUS_CONC: readonly WeightedFeature[] = [
+  ...FEATURES_V3,
+  { name: 'concentration_top2', weight: 0.2, fn: concentrationFeature },
+];
+export const evaluateV3PlusConc: Feature = (state, player) =>
+  evaluateWith(FEATURES_V3_PLUS_CONC, state, player);
+
+export const FEATURES_V3_PLUS_ENGINE: readonly WeightedFeature[] = [
+  ...FEATURES_V3,
+  { name: 'engine_value', weight: 0.2, fn: engineValueFeature },
+];
+export const evaluateV3PlusEngine: Feature = (state, player) =>
+  evaluateWith(FEATURES_V3_PLUS_ENGINE, state, player);
+
+export const FEATURES_V3_PLUS_PRESSURE: readonly WeightedFeature[] = [
+  ...FEATURES_V3,
+  { name: 'gem_pressure', weight: 0.5, fn: gemPressureFeature },
+];
+export const evaluateV3PlusPressure: Feature = (state, player) =>
+  evaluateWith(FEATURES_V3_PLUS_PRESSURE, state, player);

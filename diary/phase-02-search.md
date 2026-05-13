@@ -173,12 +173,58 @@ depth 3." Implementation lands now so the eventual UI can use it.
 `iter-100`, `iter-300`, `iter-1000` as agent names alongside
 `search-d2` / `search-d3` / `search-d4`.
 
+## Experiment 10 — rejected Phase 1 features under depth-3 search
+
+**Hypothesis (from Phase 1's lesson).** Concentration (Exp. 3),
+engine_value (Exp. 4) and gem_pressure (Exp. 5) all hurt depth-1
+greedy by destabilizing the post-action comparison or by encoding
+state that "should pay off next turn" but doesn't reach the leaf
+through a single ply. With depth-3 search the agent simulates two
+more plies; those features might now contribute.
+
+**Setup.** Three v3-plus-X evaluators, each adding one rejected
+feature at the same weight that hurt at depth 1:
+
+  - v3 + 0.2 × concentration_top2
+  - v3 + 0.2 × engine_value (additive, not replacing bonus_count)
+  - v3 + 0.5 × gem_pressure
+
+Each played head-to-head against plain v3 under `searchAgent(3)` for
+20 games at seed 7.
+
+**Results:**
+
+| Variant                | Wins  | search-d3 wins | Draws | Δ (pp) | s/game |
+|---|---|---|---|---|---|
+| search-d3-conc         | 10    | 10             | 0     | **0.0** | 19.8 |
+| search-d3-engine       | 10    | 10             | 0     | **0.0** | 14.7 |
+| search-d3-pressure     | 10    | 10             | 0     | **0.0** | 15.1 |
+
+All three: **exact 10-10 split, all 20 games decisive.** The agents
+*are* playing different games (search-d3-conc takes 33% longer than
+the others, so it's choosing different actions), but the choices
+produce statistically equivalent outcomes.
+
+**Interpretation.** Hypothesis **refuted**. Depth-3 search does not
+rehabilitate these features. The Phase 1 conclusions stand, with a
+revised reason:
+
+  > These features don't fail because greedy can't use them — they
+  > fail because they don't carry useful information for Splendor
+  > strategy at the skill range our evaluator is operating in. The
+  > useful signal in this game is already captured by prestige,
+  > bonus count, noble proximity, and opponent threat.
+
+A 0 pp swing across 60 games is enough evidence to drop these
+candidates from further consideration; we keep their feature
+functions exported only for documentation.
+
+The bigger lesson: more features ≠ stronger agent. Once the few
+genuinely informative features are in, adding marginal ones is
+likely to be neutral at best and noisy at worst.
+
 ## What's left for Phase 2
 
-- **Re-run rejected Phase 1 features under search.** Phase 1's lesson
-  predicted that `engine_value` and `concentration` may pay off once
-  the evaluator is downstream of search rather than upstream. Each
-  test is one tournament run — cheap to do.
 - **Move ordering at interior nodes / killer-move heuristic.**
   Currently we order only at the root. Sorting at every level (or
   remembering the best move from a sibling and trying it first) would

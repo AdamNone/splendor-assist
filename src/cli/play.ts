@@ -1,6 +1,13 @@
 import { greedyAgent, iterativeAgent, randomAgent, searchAgent } from '../game/agents';
 import { applyTurn, isTerminal, winner } from '../game/apply';
-import { evaluateBaseline, evaluateV2, evaluateV3 } from '../game/evaluate';
+import {
+  evaluateBaseline,
+  evaluateV2,
+  evaluateV3,
+  evaluateV3PlusConc,
+  evaluateV3PlusEngine,
+  evaluateV3PlusPressure,
+} from '../game/evaluate';
 import { legalActions } from '../game/legalActions';
 import { formatGameEnd, formatPlayer, narrate } from '../game/narrate';
 import { initialState, seededRng } from '../game/setup';
@@ -79,6 +86,9 @@ const makeAgent = (name: string, agentRng: Rng): Agent | null => {
     case 'search-d2': return searchAgent(2, evaluateV3);
     case 'search-d3': return searchAgent(3, evaluateV3);
     case 'search-d4': return searchAgent(4, evaluateV3);
+    case 'search-d3-conc': return searchAgent(3, evaluateV3PlusConc);
+    case 'search-d3-engine': return searchAgent(3, evaluateV3PlusEngine);
+    case 'search-d3-pressure': return searchAgent(3, evaluateV3PlusPressure);
     case 'iter-100': return iterativeAgent(100, evaluateV3);
     case 'iter-300': return iterativeAgent(300, evaluateV3);
     case 'iter-1000': return iterativeAgent(1000, evaluateV3);
@@ -89,6 +99,7 @@ const makeAgent = (name: string, agentRng: Rng): Agent | null => {
 const AGENT_NAMES = [
   'random', 'baseline', 'v2', 'v3',
   'search-d2', 'search-d3', 'search-d4',
+  'search-d3-conc', 'search-d3-engine', 'search-d3-pressure',
   'iter-100', 'iter-300', 'iter-1000',
 ];
 
