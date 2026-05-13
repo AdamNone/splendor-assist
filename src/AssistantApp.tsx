@@ -754,6 +754,29 @@ export default function AssistantApp({
   // on app load — not persisted.
   const [simRunning, setSimRunning] = useState(false);
   const [simSpeedMs, setSimSpeedMs] = useState(1200);
+  // Game analysis (Phase G): per-turn "what if optimal?" plus a full
+  // counterfactual replay from the initial position with MCTS on both
+  // sides. Expensive (~10–20s per game) so it only runs on demand and
+  // invalidates whenever the live game advances.
+  type AnalysisPerTurn = {
+    actor: number;
+    bestWinShares: number[];
+    actualWinShares: number[] | null;
+    /** How much win-share the actor gave up by not playing the engine's pick. Clamped to [0, 1]. */
+    loss: number;
+  };
+  type Counterfactual = {
+    winnerIdx: number;
+    winShares: number[][]; // [player][turn]
+    prestiges: number[][]; // [player][turn]
+  };
+  type GameAnalysis = {
+    perTurn: AnalysisPerTurn[];
+    counterfactual: Counterfactual;
+  };
+  const [analysis, setAnalysis] = useState<GameAnalysis | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState<string>('');
 
   const pushHistory = (prev: AssistantState) => {
     setHistory((h) => [prev, ...h].slice(0, MAX_HISTORY));
@@ -936,6 +959,96 @@ export default function AssistantApp({
    * the higher 500 for a more confident pick; auto-recommend uses 300 so
    * the brief UI freeze per state edit is shorter.
    */
+  /**
+   * Phase G: post-game analysis. Walks gameLog re-scoring every move with
+   * a fresh MCTS pass, then replays from the initial state engine-vs-engine
+   * to produce a counterfactual outcome ("if both sides played at engine
+   * strength from the start, who wins?"). Async with setTimeout(0) yields
+   * so the UI stays responsive during the ~10–20s computation.
+   */
+  const runAnalysis = async () => {
+    if (analyzing || s.gameLog.length < 2) return;
+    setAnalyzing(true);
+    setAnalysisProgress('starting…');
+    setAnalysis(null);
+    try {
+      const yieldFrame = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+      // --- Per-turn re-score ---
+      const perTurn: AnalysisPerTurn[] = [];
+      for (let i = 0; i < s.gameLog.length; i++) {
+        setAnalysisProgress(`scoring move ${i + 1} / ${s.gameLog.length}`);
+        await yieldFrame();
+        const entry = s.gameLog[i];
+        if (entry === undefined) continue;
+        const stats = mctsBestActionWithStats(entry.snapshotBefore, {
+          iterations: 300,
+          evalFn: evaluateV3,
+          rng: seededRng((Date.now() ^ i) & 0xffff_ffff),
+        });
+        const bestWinShares = normalizeWinRates(stats.winRates);
+        const actor = entry.snapshotBefore.currentPlayer;
+        const actualWinShares = entry.winShares;
+        const loss = actualWinShares !== null
+          ? Math.max(
+              0,
+              (bestWinShares[actor] ?? 0) - (actualWinShares[actor] ?? 0),
+            )
+          : 0;
+        perTurn.push({ actor, bestWinShares, actualWinShares, loss });
+      }
+
+      // --- Counterfactual replay from initial state ---
+      const initialEntry = s.gameLog[0];
+      if (initialEntry === undefined) {
+        throw new Error('no log entries to analyse');
+      }
+      let cf: GameState = initialEntry.snapshotBefore;
+      const cfWinShares: number[][] = Array.from(
+        { length: cf.numPlayers },
+        () => [] as number[],
+      );
+      const cfPrestiges: number[][] = Array.from(
+        { length: cf.numPlayers },
+        () => [] as number[],
+      );
+      let safety = 0;
+      while (!isTerminal(cf) && safety < 250) {
+        setAnalysisProgress(`replaying turn ${safety + 1}…`);
+        await yieldFrame();
+        const stats = mctsBestActionWithStats(cf, {
+          iterations: 300,
+          evalFn: evaluateV3,
+          rng: seededRng((Date.now() ^ (safety + 1000)) & 0xffff_ffff),
+        });
+        const ws = normalizeWinRates(stats.winRates);
+        cf = applyAllReveals(apply(cf, stats.bestAction));
+        for (let p = 0; p < cf.numPlayers; p++) {
+          cfWinShares[p]!.push(ws[p] ?? 0);
+          cfPrestiges[p]!.push(cf.players[p]?.prestige ?? 0);
+        }
+        safety++;
+      }
+      const cfWinner = isTerminal(cf) ? winner(cf) : 0;
+
+      setAnalysis({
+        perTurn,
+        counterfactual: {
+          winnerIdx: cfWinner,
+          winShares: cfWinShares,
+          prestiges: cfPrestiges,
+        },
+      });
+      setAnalysisProgress('');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setErrors([`Analysis failed: ${message}`]);
+      setAnalysisProgress('');
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
   const runMcts = async (iterations: number) => {
     const issues = validate();
     setErrors(issues);
@@ -1085,6 +1198,7 @@ export default function AssistantApp({
     }));
     setRecommendation(null);
     setErrors([]);
+    setAnalysis(null); // game advanced — stale
   };
 
   const onApply = (action: Action) => {
@@ -1971,6 +2085,87 @@ export default function AssistantApp({
               )}
             format={(v) => v.toFixed(0)}
           />
+
+          {/* Deep analysis: per-move blunder check + counterfactual replay */}
+          <div className="analysis-controls">
+            <button
+              type="button"
+              className="analysis-btn"
+              onClick={() => void runAnalysis()}
+              disabled={analyzing}
+              title="Re-runs MCTS for every move and replays the game engine-vs-engine. Takes ~10–20 seconds."
+            >
+              {analyzing ? `Analysing — ${analysisProgress}` : 'Run deep analysis'}
+            </button>
+            {analysis !== null && (
+              <span className="analysis-cf-banner">
+                Engine-vs-engine replay winner:{' '}
+                <strong>{playerLabel(analysis.counterfactual.winnerIdx)}</strong>
+              </span>
+            )}
+          </div>
+
+          {analysis !== null && (
+            <>
+              {/* Per-player blunder summary */}
+              <div className="blunder-grid">
+                {s.players.slice(0, s.numPlayers).map((_, pIdx) => {
+                  const moves = analysis.perTurn.filter((t) => t.actor === pIdx);
+                  const totalLoss = moves.reduce((a, m) => a + m.loss, 0);
+                  const blunders = moves
+                    .map((m, idx) => ({ loss: m.loss, turn: idx }))
+                    .filter((x) => x.loss >= 0.05)
+                    .sort((a, b) => b.loss - a.loss)
+                    .slice(0, 3);
+                  return (
+                    <div key={pIdx} className="blunder-card">
+                      <div className="blunder-name">{playerLabel(pIdx)}</div>
+                      <div className="blunder-stat">
+                        <span className="blunder-label">Win-share lost to sub-optimal moves</span>
+                        <span className="blunder-val">
+                          {(totalLoss * 100).toFixed(1)}%
+                        </span>
+                      </div>
+                      <div className="blunder-stat">
+                        <span className="blunder-label">Moves with ≥5% loss</span>
+                        <span className="blunder-val">{blunders.length}</span>
+                      </div>
+                      {blunders.length > 0 && (
+                        <div className="blunder-worst">
+                          Worst: turn{' '}
+                          {moves.findIndex((m) => m.loss === blunders[0]!.loss) + 1}{' '}
+                          (–{(blunders[0]!.loss * 100).toFixed(1)}%)
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Counterfactual chart: engine-vs-engine from the start */}
+              <HistoryChart
+                yLabel="Counterfactual win share (engine vs engine from turn 1)"
+                yMax={1}
+                playerLabels={s.players
+                  .slice(0, s.numPlayers)
+                  .map((_, i) => playerLabel(i))}
+                series={analysis.counterfactual.winShares}
+                format={(v) => `${(v * 100).toFixed(0)}%`}
+              />
+              <HistoryChart
+                yLabel="Counterfactual prestige (engine vs engine from turn 1)"
+                yMax={Math.max(
+                  15,
+                  ...analysis.counterfactual.prestiges.flat(),
+                )}
+                playerLabels={s.players
+                  .slice(0, s.numPlayers)
+                  .map((_, i) => playerLabel(i))}
+                series={analysis.counterfactual.prestiges}
+                format={(v) => v.toFixed(0)}
+              />
+            </>
+          )}
         </section>
       )}
       </div>

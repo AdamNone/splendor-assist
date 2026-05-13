@@ -305,6 +305,74 @@
   padding: 8px 0;
 }
 
+.analysis-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 10px 0 6px;
+  padding-top: 10px;
+  border-top: 1px solid #e5e7eb;
+}
+.analysis-btn {
+  appearance: none;
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid #1f2937;
+  background: #1f2937;
+  color: #f9fafb;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.analysis-btn:hover:not(:disabled) { background: #111827; }
+.analysis-btn:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+.analysis-cf-banner {
+  font-size: 12px;
+  color: #4b5563;
+}
+.blunder-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+.blunder-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fafafa;
+}
+.blunder-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: #1f2937;
+  margin-bottom: 4px;
+}
+.blunder-stat {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #6b7280;
+  margin-bottom: 2px;
+}
+.blunder-label { color: #6b7280; }
+.blunder-val {
+  font-weight: 700;
+  color: #1f2937;
+  font-variant-numeric: tabular-nums;
+}
+.blunder-worst {
+  font-size: 11px;
+  color: #92400e;
+  margin-top: 4px;
+}
+
 .game-over-banner {
   padding: 12px 14px;
   background: linear-gradient(155deg, #fef3c7 0%, #fde68a 100%);
