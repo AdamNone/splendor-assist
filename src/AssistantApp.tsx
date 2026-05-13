@@ -302,6 +302,19 @@ export default function AssistantApp() {
 
   const visibleNobles = ALL_NOBLES;
 
+  // Card IDs already assigned to a face-up slot. The picker uses this to
+  // grey out cards the user already placed elsewhere, so the same physical
+  // card can't be selected twice.
+  const usedFaceUpIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const tier of TIERS) {
+      for (const c of s.faceUp[tier]) {
+        if (c !== null) set.add(c.id);
+      }
+    }
+    return set;
+  }, [s.faceUp]);
+
   // ===== Render =====
 
   const currentVisibleFaceUp = (tier: Tier) =>
@@ -390,6 +403,7 @@ export default function AssistantApp() {
                   key={i}
                   tier={tier}
                   card={card}
+                  unavailableIds={usedFaceUpIds}
                   onPick={(picked) => {
                     setS((prev) => {
                       const grid = { ...prev.faceUp, [tier]: prev.faceUp[tier].slice() };
@@ -558,10 +572,12 @@ function CardSlot({
   tier,
   card,
   onPick,
+  unavailableIds,
 }: {
   tier: Tier;
   card: Card | null;
   onPick: (card: Card | null) => void;
+  unavailableIds: Set<string>;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -582,6 +598,7 @@ function CardSlot({
         <CardPickerModal
           tier={tier}
           selected={card}
+          unavailableIds={unavailableIds}
           onPick={(picked) => {
             onPick(picked);
             setOpen(false);
@@ -596,11 +613,13 @@ function CardSlot({
 function CardPickerModal({
   tier,
   selected,
+  unavailableIds,
   onPick,
   onClose,
 }: {
   tier: Tier;
   selected: Card | null;
+  unavailableIds: Set<string>;
   onPick: (card: Card | null) => void;
   onClose: () => void;
 }) {
@@ -640,17 +659,24 @@ function CardPickerModal({
         </div>
         <div className="modal-body">
           <div className="picker-grid">
-            {cards.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                className={`picker-tile ${selected?.id === c.id ? 'selected' : ''}`}
-                onClick={() => onPick(c)}
-                title={c.id}
-              >
-                <CardArt card={c} />
-              </button>
-            ))}
+            {cards.map((c) => {
+              const isSelected = selected?.id === c.id;
+              const isUnavailable = unavailableIds.has(c.id) && !isSelected;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={`picker-tile ${isSelected ? 'selected' : ''} ${isUnavailable ? 'unavailable' : ''}`}
+                  onClick={() => {
+                    if (!isUnavailable) onPick(c);
+                  }}
+                  disabled={isUnavailable}
+                  title={isUnavailable ? `${c.id} — already placed in another slot` : c.id}
+                >
+                  <CardArt card={c} />
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>

@@ -304,11 +304,17 @@ input[type='number']:focus {
   display: flex;
   justify-content: center;
 }
-.picker-tile:hover { background: #f3f4f6; }
+.picker-tile:hover:not(.unavailable) { background: #f3f4f6; }
 .picker-tile.selected {
   border-color: #1f2937;
   background: #f3f4f6;
 }
+.picker-tile.unavailable {
+  cursor: not-allowed;
+  opacity: 0.28;
+  filter: grayscale(0.5);
+}
+.picker-tile.unavailable:hover { background: transparent; }
 
 .noble-grid {
   display: grid;
