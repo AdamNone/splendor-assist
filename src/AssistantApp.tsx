@@ -1,13 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 // useMemo is used inside CardPickerModal below.
 import { apply } from './game/apply';
+import { computePayment } from './game/gems';
 import { mctsBestActionWithStats } from './game/mcts';
 import type { MctsCandidate } from './game/mcts';
 import { evaluateV3 } from './game/evaluate';
 import { ALL_CARDS, ALL_NOBLES } from './game/data';
 import { narrate } from './game/narrate';
 import { seededRng } from './game/setup';
-import { COLORS, GEM_COLORS, TIERS } from './game/types';
+import {
+  COLORS,
+  GEM_COLORS,
+  GEM_HAND_LIMIT,
+  TAKE_2_MIN_PILE,
+  TIERS,
+} from './game/types';
 import type {
   Action,
   Card,
@@ -206,11 +213,28 @@ const describeAction = (state: GameState, action: Action): string => {
 // Component
 // =============================================================================
 
+const MAX_HISTORY = 20;
+
 export default function AssistantApp() {
   const [s, setS] = useState<AssistantState>(initialState);
+  const [history, setHistory] = useState<AssistantState[]>([]);
   const [thinking, setThinking] = useState(false);
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
+
+  const pushHistory = (prev: AssistantState) => {
+    setHistory((h) => [prev, ...h].slice(0, MAX_HISTORY));
+  };
+  const onUndo = () => {
+    setHistory((h) => {
+      const [head, ...rest] = h;
+      if (head === undefined) return h;
+      setS(head);
+      setRecommendation(null);
+      setErrors([]);
+      return rest;
+    });
+  };
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
@@ -366,11 +390,14 @@ export default function AssistantApp() {
    * resulting state. The face-up slot the action operated on is left
    * empty if the action was a buy or face-up reserve — the user fills
    * the revealed card via the existing picker.
+   *
+   * Saves the current form state to history so the user can undo.
    */
   const onApply = (action: Action) => {
     try {
       const state = buildGameState(s);
       const next = apply(state, action);
+      pushHistory(s);
       setS((prev) => fromGameState(next, prev));
       setRecommendation(null);
       setErrors([]);
@@ -448,14 +475,25 @@ export default function AssistantApp() {
           <div>
             <h1>Splendor Assistant</h1>
             <p className="sub">
-              Enter the current game state and press <kbd>Recommend</kbd> to get
-              an MCTS move suggestion. State persists to localStorage between
-              sessions.
+              Click a recommendation when it's your turn; pick the opponent's
+              action when it isn't. The engine enforces all rules so illegal
+              moves can't be entered. State persists between sessions.
             </p>
           </div>
-          <button type="button" className="new-game-btn" onClick={resetGame}>
-            New game
-          </button>
+          <div className="header-actions">
+            <button
+              type="button"
+              className="undo-btn"
+              onClick={onUndo}
+              disabled={history.length === 0}
+              title={history.length === 0 ? 'Nothing to undo' : 'Restore the previous state'}
+            >
+              ↶ Undo
+            </button>
+            <button type="button" className="new-game-btn" onClick={resetGame}>
+              New game
+            </button>
+          </div>
         </div>
       </header>
 
@@ -519,13 +557,10 @@ export default function AssistantApp() {
                 style={{ background: c === 'gold' ? GOLD_HEX : COLOR_HEX[c] }}
                 title={c}
               />
-              <input
-                type="number"
-                min={0}
+              <StepCounter
                 value={s.gemSupply[c]}
-                onChange={(e) => setSupplyGem(c, Number(e.target.value) || 0)}
-                onFocus={(e) => e.target.select()}
-                aria-label={`supply ${c}`}
+                onChange={(v) => setSupplyGem(c, v)}
+                ariaLabel={`supply ${c}`}
               />
             </div>
           ))}
@@ -606,23 +641,12 @@ export default function AssistantApp() {
 
       <section className="card recommend">
         {s.currentPlayer !== s.mainPlayer ? (
-          <div className="waiting">
-            <div className="waiting-title">
-              It's P{s.currentPlayer}'s turn — not yours.
-            </div>
-            <p className="waiting-sub">
-              Update their cards, gems, bonuses and prestige above to reflect
-              their move, then switch the <strong>Whose turn</strong> pill back
-              to P{s.mainPlayer}. The assistant will auto-recommend.
-            </p>
-            <button
-              type="button"
-              className="waiting-cta"
-              onClick={() => setCurrentPlayer(s.mainPlayer)}
-            >
-              Skip to P{s.mainPlayer}'s turn
-            </button>
-          </div>
+          <OpponentTurnPanel
+            assistantState={s}
+            onApply={onApply}
+            onSkip={() => setCurrentPlayer(s.mainPlayer)}
+            errors={errors}
+          />
         ) : (
           <>
             <div className="recommend-header">
@@ -872,6 +896,51 @@ function CardPickerModal({
   );
 }
 
+function StepCounter({
+  value,
+  onChange,
+  ariaLabel,
+  min = 0,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  ariaLabel: string;
+  min?: number;
+}) {
+  return (
+    <div className="stepper">
+      <button
+        type="button"
+        className="step-btn"
+        onClick={() => onChange(Math.max(min, value - 1))}
+        disabled={value <= min}
+        aria-label={`decrement ${ariaLabel}`}
+        tabIndex={-1}
+      >
+        −
+      </button>
+      <input
+        type="number"
+        min={min}
+        value={value}
+        onChange={(e) => onChange(Math.max(min, Number(e.target.value) || 0))}
+        onFocus={(e) => e.target.select()}
+        aria-label={ariaLabel}
+        className="step-input"
+      />
+      <button
+        type="button"
+        className="step-btn"
+        onClick={() => onChange(value + 1)}
+        aria-label={`increment ${ariaLabel}`}
+        tabIndex={-1}
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
 function PlayerPanel({
   idx,
   isCurrent,
@@ -899,13 +968,10 @@ function PlayerPanel({
           {COLORS.map((c) => (
             <div key={c} className="gem-cell">
               <div className="swatch" style={{ background: COLOR_HEX[c] }} />
-              <input
-                type="number"
-                min={0}
+              <StepCounter
                 value={player.bonuses[c]}
-                onChange={(e) => onBonus(c, Number(e.target.value) || 0)}
-                onFocus={(e) => e.target.select()}
-                aria-label={`P${idx} bonus ${c}`}
+                onChange={(v) => onBonus(c, v)}
+                ariaLabel={`P${idx} bonus ${c}`}
               />
             </div>
           ))}
@@ -920,13 +986,10 @@ function PlayerPanel({
                 className="swatch"
                 style={{ background: c === 'gold' ? GOLD_HEX : COLOR_HEX[c] }}
               />
-              <input
-                type="number"
-                min={0}
+              <StepCounter
                 value={player.gems[c]}
-                onChange={(e) => onGem(c, Number(e.target.value) || 0)}
-                onFocus={(e) => e.target.select()}
-                aria-label={`P${idx} gem ${c}`}
+                onChange={(v) => onGem(c, v)}
+                ariaLabel={`P${idx} gem ${c}`}
               />
             </div>
           ))}
@@ -934,15 +997,333 @@ function PlayerPanel({
       </div>
       <div className="player-row">
         <span className="player-label">Prestige</span>
-        <input
-          type="number"
-          min={0}
+        <StepCounter
           value={player.prestige}
-          onChange={(e) => onPrestige(Number(e.target.value) || 0)}
-          onFocus={(e) => e.target.select()}
-          aria-label={`P${idx} prestige`}
-          className="prestige-input"
+          onChange={onPrestige}
+          ariaLabel={`P${idx} prestige`}
         />
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Opponent action picker — replaces direct state editing for opponent turns.
+// Every action goes through `apply()` so illegal moves are impossible.
+// =============================================================================
+
+type OpponentActionType = 'take3' | 'take2' | 'reserve' | 'buy';
+
+function OpponentTurnPanel({
+  assistantState,
+  onApply,
+  onSkip,
+  errors,
+}: {
+  assistantState: AssistantState;
+  onApply: (action: Action) => void;
+  onSkip: () => void;
+  errors: string[];
+}) {
+  const state = useMemo(() => buildGameState(assistantState), [assistantState]);
+  const opp = state.players[state.currentPlayer];
+  const oppIdx = state.currentPlayer;
+
+  const [actionType, setActionType] = useState<OpponentActionType | null>(null);
+  const [take3Colors, setTake3Colors] = useState<Color[]>([]);
+
+  // Reset sub-state when the opponent changes (turn just advanced).
+  useEffect(() => {
+    setActionType(null);
+    setTake3Colors([]);
+  }, [oppIdx]);
+
+  if (opp === undefined) return null;
+
+  const oppGems =
+    opp.gems.white + opp.gems.blue + opp.gems.green + opp.gems.red +
+    opp.gems.black + opp.gems.gold;
+  const headroom = GEM_HAND_LIMIT - oppGems;
+  const goldAvailable = state.gemSupply.gold > 0;
+  const reserveGemAdded = goldAvailable ? 1 : 0;
+
+  // ===== Per-action-type pickers =====
+
+  const renderTake3 = () => {
+    const avail = COLORS.filter((c) => state.gemSupply[c] > 0);
+    const k = Math.min(3, avail.length, headroom);
+    const overcap = headroom < 1;
+    const toggle = (c: Color) => {
+      setTake3Colors((prev) => {
+        if (prev.includes(c)) return prev.filter((x) => x !== c);
+        if (prev.length >= k) return prev;
+        return [...prev, c];
+      });
+    };
+    const applyTake3 = () => {
+      if (take3Colors.length === 0) return;
+      onApply({ type: 'take3', colors: take3Colors });
+    };
+    if (overcap) {
+      return (
+        <p className="picker-disabled">
+          P{oppIdx} already holds {oppGems} gems — can't take any more without
+          discarding. If they discarded, edit gems manually.
+        </p>
+      );
+    }
+    return (
+      <>
+        <p className="picker-hint">
+          Click up to {k} different color{k === 1 ? '' : 's'}. Click again to
+          deselect.
+        </p>
+        <div className="picker-color-row">
+          {COLORS.map((c) => {
+            const selected = take3Colors.includes(c);
+            const disabled =
+              state.gemSupply[c] === 0 ||
+              (!selected && take3Colors.length >= k);
+            return (
+              <button
+                key={c}
+                type="button"
+                className={`color-pick ${selected ? 'selected' : ''}`}
+                style={{
+                  background: COLOR_HEX[c],
+                  color: c === 'white' ? '#1f2937' : '#fff',
+                }}
+                onClick={() => toggle(c)}
+                disabled={disabled}
+                aria-label={`take3 ${c}`}
+              >
+                {c.charAt(0).toUpperCase()}
+              </button>
+            );
+          })}
+        </div>
+        <button
+          type="button"
+          className="opp-apply"
+          onClick={applyTake3}
+          disabled={take3Colors.length === 0}
+        >
+          Apply ({take3Colors.length === 0
+            ? 'pick at least 1 color'
+            : `take ${take3Colors.join(', ')}`})
+        </button>
+      </>
+    );
+  };
+
+  const renderTake2 = () => {
+    const eligible = COLORS.filter(
+      (c) => state.gemSupply[c] >= TAKE_2_MIN_PILE,
+    );
+    if (headroom < 2) {
+      return (
+        <p className="picker-disabled">
+          P{oppIdx} can't fit 2 more gems (currently has {oppGems}).
+        </p>
+      );
+    }
+    if (eligible.length === 0) {
+      return (
+        <p className="picker-disabled">
+          No color has ≥{TAKE_2_MIN_PILE} in supply — take 2 isn't legal.
+        </p>
+      );
+    }
+    return (
+      <>
+        <p className="picker-hint">
+          Pick a color. Only colors with ≥{TAKE_2_MIN_PILE} in supply are
+          allowed.
+        </p>
+        <div className="picker-color-row">
+          {COLORS.map((c) => {
+            const disabled = state.gemSupply[c] < TAKE_2_MIN_PILE;
+            return (
+              <button
+                key={c}
+                type="button"
+                className="color-pick"
+                style={{
+                  background: COLOR_HEX[c],
+                  color: c === 'white' ? '#1f2937' : '#fff',
+                }}
+                onClick={() => onApply({ type: 'take2', color: c })}
+                disabled={disabled}
+                aria-label={`take2 ${c}`}
+              >
+                {c.charAt(0).toUpperCase()}
+              </button>
+            );
+          })}
+        </div>
+      </>
+    );
+  };
+
+  const renderReserve = () => {
+    if (reserveGemAdded > headroom) {
+      return (
+        <p className="picker-disabled">
+          P{oppIdx} can't take the gold from reserving — they're at the
+          {' '}10-gem cap. Edit their gems manually if they discarded.
+        </p>
+      );
+    }
+    return (
+      <>
+        <p className="picker-hint">
+          Pick the face-up card they reserved, or "Blind from T-deck" if they
+          drew from the top.
+        </p>
+        <div className="picker-reserve-area">
+          {TIERS.slice().reverse().map((tier) => (
+            <div key={tier} className="picker-reserve-row">
+              <span className="picker-tier-label">T{tier}</span>
+              <div className="picker-card-row">
+                {state.faceUp[tier].map((card, i) =>
+                  card !== null ? (
+                    <button
+                      key={i}
+                      type="button"
+                      className="picker-card-btn"
+                      onClick={() =>
+                        onApply({
+                          type: 'reserve',
+                          source: { kind: 'faceUp', tier, slot: i },
+                        })
+                      }
+                      aria-label={`reserve ${card.id}`}
+                    >
+                      <CardArt card={card} size="small" />
+                    </button>
+                  ) : (
+                    <div key={i} className="picker-card-empty">empty</div>
+                  ),
+                )}
+                <button
+                  type="button"
+                  className="picker-blind-btn"
+                  disabled={state.decks[tier].length === 0}
+                  onClick={() =>
+                    onApply({ type: 'reserve', source: { kind: 'deck', tier } })
+                  }
+                >
+                  Blind from T{tier}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </>
+    );
+  };
+
+  const renderBuy = () => {
+    const buyable: Array<{ card: Card; tier: Tier; slot: number; payment: GemPool }> = [];
+    for (const tier of TIERS) {
+      for (let slot = 0; slot < state.faceUp[tier].length; slot++) {
+        const card = state.faceUp[tier][slot];
+        if (card === null || card === undefined) continue;
+        const payment = computePayment(card, opp);
+        if (payment !== null) {
+          buyable.push({ card, tier, slot, payment });
+        }
+      }
+    }
+    if (buyable.length === 0) {
+      return (
+        <p className="picker-disabled">
+          P{oppIdx} can't afford any face-up card. (Buying from their own
+          reserve isn't tracked in v0.4 — edit manually if it happens.)
+        </p>
+      );
+    }
+    return (
+      <>
+        <p className="picker-hint">
+          Pick the card P{oppIdx} bought. Only cards they can afford are
+          shown; payment is computed automatically.
+        </p>
+        <div className="picker-buy-grid">
+          {buyable.map((b) => (
+            <button
+              key={`${b.tier}-${b.slot}`}
+              type="button"
+              className="picker-card-btn"
+              onClick={() =>
+                onApply({
+                  type: 'buy',
+                  source: { kind: 'faceUp', tier: b.tier, slot: b.slot },
+                  payment: b.payment,
+                })
+              }
+              aria-label={`buy ${b.card.id}`}
+            >
+              <CardArt card={b.card} size="small" />
+            </button>
+          ))}
+        </div>
+      </>
+    );
+  };
+
+  return (
+    <div className="opponent-panel">
+      <div className="opp-header">
+        <div>
+          <div className="opp-title">P{oppIdx}'s turn — what did they do?</div>
+          <p className="opp-sub">
+            All actions go through the engine, so illegal moves can't be
+            entered here. Edit their tableau above manually only for
+            unusual cases (discarding from over-cap, buying from their own
+            reserve, etc.).
+          </p>
+        </div>
+        <button type="button" className="opp-skip-btn" onClick={onSkip}>
+          Skip P{oppIdx} (they passed) →
+        </button>
+      </div>
+
+      {errors.length > 0 && (
+        <div className="issues">
+          {errors.map((e, i) => (
+            <div key={i}>⚠ {e}</div>
+          ))}
+        </div>
+      )}
+
+      <div className="opp-type-row">
+        {(['take3', 'take2', 'reserve', 'buy'] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            className={`opp-type-btn ${actionType === t ? 'active' : ''}`}
+            onClick={() => {
+              setActionType(t);
+              setTake3Colors([]);
+            }}
+          >
+            {t === 'take3' ? 'Take 3 different'
+              : t === 'take2' ? 'Take 2 same'
+              : t === 'reserve' ? 'Reserve'
+              : 'Buy'}
+          </button>
+        ))}
+      </div>
+
+      <div className="opp-picker-area">
+        {actionType === null && (
+          <p className="picker-hint">Pick an action type above.</p>
+        )}
+        {actionType === 'take3' && renderTake3()}
+        {actionType === 'take2' && renderTake2()}
+        {actionType === 'reserve' && renderReserve()}
+        {actionType === 'buy' && renderBuy()}
       </div>
     </div>
   );

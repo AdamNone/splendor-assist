@@ -23,7 +23,12 @@
   margin: 0;
   font-size: 14px;
 }
-.new-game-btn {
+.header-actions {
+  display: flex;
+  gap: 6px;
+}
+.new-game-btn,
+.undo-btn {
   flex: 0 0 auto;
   height: 34px;
   padding: 0 14px;
@@ -35,10 +40,271 @@
   color: #4b5563;
   cursor: pointer;
 }
-.new-game-btn:hover {
+.new-game-btn:hover,
+.undo-btn:hover:not(:disabled) {
   background: #f9fafb;
   color: #1f2937;
   border-color: #9ca3af;
+}
+.undo-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ===== StepCounter ===== */
+.stepper {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+}
+.step-btn {
+  width: 24px;
+  border: 0;
+  background: #f9fafb;
+  color: #4b5563;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  user-select: none;
+}
+.step-btn:hover:not(:disabled) {
+  background: #e5e7eb;
+  color: #1f2937;
+}
+.step-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.step-input {
+  width: 36px;
+  border: 0;
+  border-left: 1px solid #e5e7eb;
+  border-right: 1px solid #e5e7eb;
+  background: transparent;
+  text-align: center;
+  font-size: 13px;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  color: #1f2937;
+  padding: 0;
+  margin: 0;
+  height: auto;
+  border-radius: 0;
+}
+.step-input:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 2px rgba(31, 41, 55, 0.15);
+}
+/* hide the native spinner arrows; the +/- buttons are the controls */
+.step-input::-webkit-outer-spin-button,
+.step-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.step-input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+/* ===== OpponentTurnPanel ===== */
+.opponent-panel {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 10px;
+  padding: 16px;
+}
+.opp-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.opp-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #92400e;
+}
+.opp-sub {
+  font-size: 12px;
+  color: #92400e;
+  margin: 4px 0 0;
+  line-height: 1.5;
+  max-width: 540px;
+}
+.opp-skip-btn {
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid #fcd34d;
+  background: #fff;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  color: #92400e;
+  cursor: pointer;
+}
+.opp-skip-btn:hover {
+  background: #fef3c7;
+}
+.opp-type-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.opp-type-btn {
+  flex: 1;
+  height: 36px;
+  border: 1px solid #fcd34d;
+  background: #fff;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: #92400e;
+  cursor: pointer;
+}
+.opp-type-btn:hover {
+  background: #fef3c7;
+}
+.opp-type-btn.active {
+  background: #92400e;
+  color: #fff;
+  border-color: #92400e;
+}
+.opp-picker-area {
+  background: #fff;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 14px;
+  min-height: 80px;
+}
+.picker-hint {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: #4b5563;
+}
+.picker-disabled {
+  margin: 0;
+  font-size: 13px;
+  color: #92400e;
+}
+.picker-color-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.color-pick {
+  width: 44px;
+  height: 44px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.color-pick:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+.color-pick.selected {
+  border-color: #1f2937;
+  box-shadow: 0 0 0 2px #fff inset;
+}
+.color-pick:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+.opp-apply {
+  height: 36px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 8px;
+  background: #92400e;
+  color: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.opp-apply:disabled {
+  background: #d6d3d1;
+  cursor: not-allowed;
+}
+.opp-apply:hover:not(:disabled) {
+  background: #78350f;
+}
+.picker-reserve-area {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.picker-reserve-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.picker-tier-label {
+  font-weight: 600;
+  font-size: 13px;
+  min-width: 28px;
+  color: #4b5563;
+}
+.picker-card-row {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.picker-card-btn {
+  appearance: none;
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  padding: 2px;
+  cursor: pointer;
+}
+.picker-card-btn:hover {
+  background: #fef3c7;
+  border-color: #fcd34d;
+}
+.picker-card-empty {
+  width: 84px;
+  height: 116px;
+  border: 1px dashed #d1d5db;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  font-size: 11px;
+}
+.picker-blind-btn {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px dashed #fcd34d;
+  background: #fff;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  color: #92400e;
+  cursor: pointer;
+}
+.picker-blind-btn:hover:not(:disabled) {
+  background: #fef3c7;
+}
+.picker-blind-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.picker-buy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 8px;
 }
 .assistant header .sub kbd {
   display: inline-block;
