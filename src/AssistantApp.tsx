@@ -66,6 +66,13 @@ type PlayerForm = {
   gems: GemPool;
   prestige: number;
   reserved: ReservedFormCard[];
+  /**
+   * IDs of nobles this player has claimed. Each base-set noble is +3
+   * prestige; together with `bonuses` this lets us split the player's
+   * total prestige into "from cards" vs "from nobles" for the tooltip
+   * breakdown without storing every purchased card.
+   */
+  claimedNobleIds: string[];
 };
 
 type FaceUpGrid = Record<Tier, Array<Card | null>>;
@@ -116,6 +123,7 @@ const emptyPlayer = (): PlayerForm => ({
   gems: emptyGemPool(),
   prestige: 0,
   reserved: [],
+  claimedNobleIds: [],
 });
 
 const emptyFaceUp = (): FaceUpGrid => ({
@@ -148,6 +156,9 @@ const initialState = (): AssistantState => {
               if (card === undefined) return [];
               return [{ card, ...(r.blind === true ? { blind: true } : {}) }];
             })
+          : [],
+        claimedNobleIds: Array.isArray((p as Partial<PlayerForm>).claimedNobleIds)
+          ? ((p as PlayerForm).claimedNobleIds.filter((id): id is string => typeof id === 'string'))
           : [],
       }));
       // seenIds: prefer the saved set; if missing (older save format),
@@ -256,6 +267,7 @@ const fromGameState = (gs: GameState, prev: AssistantState): AssistantState => (
       card: r.card,
       ...(r.reservedFrom === 'deck' ? { blind: true } : {}),
     })),
+    claimedNobleIds: p.nobles.map((n) => n.id),
   })),
 });
 
@@ -276,6 +288,7 @@ const buildGameState = (s: AssistantState): GameState => {
     2: tierDeckRemaining(s, 2),
     3: tierDeckRemaining(s, 3),
   };
+  const nobleById = new Map(ALL_NOBLES.map((n) => [n.id, n]));
   const players: PlayerState[] = s.players.slice(0, s.numPlayers).map((p) => ({
     gems: { ...p.gems },
     purchased: [],
@@ -285,7 +298,9 @@ const buildGameState = (s: AssistantState): GameState => {
       card: r.card,
       reservedFrom: (r.blind === true ? 'deck' : 'faceUp') as 'deck' | 'faceUp',
     })),
-    nobles: [],
+    nobles: p.claimedNobleIds
+      .map((id) => nobleById.get(id))
+      .filter((n): n is Noble => n !== undefined),
     bonuses: { ...p.bonuses },
     prestige: p.prestige,
   }));
@@ -2196,10 +2211,26 @@ function PlayerPanel({
         <span className="stats-sep" />
         <span
           className="readonly-prestige"
-          title={`Prestige: ${player.prestige}`}
+          title={
+            // Breakdown: each claimed noble is +3 prestige; the rest comes
+            // from purchased cards. Helps the user see "I'm winning thanks
+            // to my nobles" vs "thanks to high-tier card prestige".
+            player.claimedNobleIds.length > 0
+              ? `${player.prestige} prestige = ${
+                  player.prestige - player.claimedNobleIds.length * 3
+                } from cards + ${player.claimedNobleIds.length * 3} from ${
+                  player.claimedNobleIds.length
+                } noble${player.claimedNobleIds.length === 1 ? '' : 's'}`
+              : `${player.prestige} prestige (all from cards — no nobles yet)`
+          }
           aria-label={`P${idx} prestige: ${player.prestige}`}
         >
           ★ {player.prestige}
+          {player.claimedNobleIds.length > 0 && (
+            <span className="prestige-noble-split">
+              {' '}({player.prestige - player.claimedNobleIds.length * 3}+{player.claimedNobleIds.length * 3})
+            </span>
+          )}
         </span>
       </div>
 

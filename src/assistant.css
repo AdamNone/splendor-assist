@@ -985,6 +985,12 @@ input[type='number']:focus {
   color: #92400e;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  cursor: help;
+}
+.prestige-noble-split {
+  font-weight: 500;
+  font-size: 11px;
+  color: #b45309;
 }
 
 /* Single-row player stats: B-label + 5 bonus cells | G-label + 6 gem
