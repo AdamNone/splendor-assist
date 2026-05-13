@@ -257,11 +257,45 @@ export const FEATURES_V4: readonly WeightedFeature[] = [
 export const evaluateV4: Feature = (state, player) =>
   evaluateWith(FEATURES_V4, state, player);
 
-// `evaluate` always points at the current best evaluator. v3 (with
-// opponent_threat) currently leads. Rejected en route under depth-1
-// greedy: concentration (Experiment 3), engine_value (Experiment 4),
-// gem_pressure (Experiment 5). See diary/phase-01-evaluator.md.
-export const evaluate: Feature = evaluateV3;
+// === V5: endgame race mode ===
+// Splendor's late game has a fundamentally different shape than mid-game.
+// Once *anyone* hits ~12 prestige the game can end inside a single round,
+// which means:
+//
+//   1. Prestige already on the board matters more than bonuses (no more
+//      time to cash bonuses in for prestige).
+//   2. Noble proximity matters more for both you and opponents — a 3pp
+//      swing inside the last round can win or lose the game.
+//   3. Opponent threats are sharper — if they can buy a card right now
+//      that puts them over 15, you don't get another turn to react.
+//
+// We model this by re-weighting the existing v4 feature stack when a
+// player reaches the "race threshold" (12 prestige). No new feature
+// functions, just a different weight vector chosen per state.
+const RACE_THRESHOLD = 12;
+const isEndgame = (state: GameState): boolean =>
+  state.players.some((p) => p.prestige >= RACE_THRESHOLD);
+
+const FEATURES_V5_RACE: readonly WeightedFeature[] = [
+  { name: 'prestige',                 weight: 2.5, fn: prestigeFeature },
+  { name: 'bonus_count',              weight: 0.2, fn: bonusCountFeature },
+  { name: 'noble_proximity',          weight: 1.5, fn: nobleProximityFeature },
+  { name: 'opponent_threat',          weight: 1.0, fn: opponentThreatFeature },
+  { name: 'opponent_noble_proximity', weight: 1.0, fn: opponentNobleProximityFeature },
+];
+
+export const evaluateV5: Feature = (state, player) =>
+  isEndgame(state)
+    ? evaluateWith(FEATURES_V5_RACE, state, player)
+    : evaluateWith(FEATURES_V4, state, player);
+
+// `evaluate` always points at the current best evaluator. v5 (v4 +
+// endgame race-mode reweighting) currently leads — beat v4 by +13.8pp
+// net in an 80-game greedy head-to-head. Rejected en route under
+// depth-1 greedy: concentration (Experiment 3), engine_value
+// (Experiment 4), gem_pressure (Experiment 5). See
+// diary/phase-01-evaluator.md.
+export const evaluate: Feature = evaluateV5;
 
 // === Experimental v3-plus variants used to retest rejected features ===
 // Each variant adds one previously-rejected feature back on top of v3 at

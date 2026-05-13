@@ -12,6 +12,7 @@ import {
   evaluateV2,
   evaluateV3,
   evaluateV4,
+  evaluateV5,
   evaluateV3PlusConc,
   evaluateV3PlusEngine,
   evaluateV3PlusPressure,
@@ -33,6 +34,7 @@ export const ALL_AGENT_NAMES = [
   'v2',
   'v3',
   'v4',
+  'v5',
   'search-d2',
   'search-d3',
   'search-d4',
@@ -79,6 +81,8 @@ export const makeAgent = (name: string, seed: number = 0): Agent | null => {
       return greedyAgent(evaluateV3);
     case 'v4':
       return greedyAgent(evaluateV4);
+    case 'v5':
+      return greedyAgent(evaluateV5);
     case 'search-d2':
       return searchAgent(2, evaluateV3);
     case 'search-d3':
