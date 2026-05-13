@@ -70,18 +70,19 @@ const compare = async (
   seed: number,
   aName: string,
   bName: string,
+  numPlayers: 2 | 3 | 4 = 2,
 ): Promise<void> => {
   // Sanity-check the names against the factory before dispatching to workers.
   if (makeAgent(aName, 0) === null || makeAgent(bName, 0) === null) {
     console.error(`Unknown agent. Choose from: ${ALL_AGENT_NAMES.join(', ')}`);
     process.exit(1);
   }
-  console.log(`A/B: ${aName} vs ${bName} | ${games} games | seed=${seed}\n`);
+  console.log(`A/B: ${aName} vs ${bName} | ${games} games | seed=${seed} | ${numPlayers}P\n`);
   const start = Date.now();
   const result = await playMatch(
     { name: aName, seed: seed + 1001 },
     { name: bName, seed: seed + 2002 },
-    { games, rng: seededRng(seed) },
+    { games, rng: seededRng(seed), numPlayers },
   );
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
   const total = result.aWins + result.bWins + result.draws;
@@ -107,7 +108,8 @@ const main = async (): Promise<void> => {
     const seed = intArg(args[2], 42);
     const aName = args[3] ?? 'search-d2';
     const bName = args[4] ?? 'v3';
-    await compare(games, seed, aName, bName);
+    const numPlayers = (intArg(args[5], 2) as 2 | 3 | 4);
+    await compare(games, seed, aName, bName, numPlayers);
   } else {
     const seed = intArg(args[1], 42);
     const numPlayers = (intArg(args[2], 2) as 2 | 3 | 4);

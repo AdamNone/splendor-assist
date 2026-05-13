@@ -356,15 +356,65 @@ export const evaluateV6: Feature = (state, player) =>
     ? evaluateWith(FEATURES_V6_RACE, state, player)
     : evaluateWith(FEATURES_V6, state, player);
 
-// `evaluate` always points at the current best evaluator. v6 (v5 +
-// opponent_next_buy with noble-chain awareness) currently leads. The
-// 80-game greedy head-to-heads are noisy (53–49 draws of 80 → ~30
-// decisive games), so the per-version pp numbers swing ±5 between
-// matchups; net trend across v3 → v4 → v5 → v6 is clearly positive.
-// Rejected en route under depth-1 greedy: concentration (Experiment
-// 3), engine_value (Experiment 4), gem_pressure (Experiment 5). See
-// diary/phase-01-evaluator.md.
-export const evaluate: Feature = evaluateV6;
+// === V7: per-opponent-count normalization ===
+// The opponent-summed threat features (opponent_threat,
+// opponent_noble_proximity, opponent_next_buy) scale linearly with the
+// number of opponents. In 4P they contributed ~3× the magnitude they
+// did in 2P, biasing the engine into over-defensive play — both 4P
+// agents stalled in 87.5% draws when measured. The fix: divide by the
+// opponent count so each feature represents the *average* threat per
+// opponent, which keeps the weight vector comparable across player
+// counts. Same weights, scale-invariant threat signals.
+const normByOpponents = (state: GameState, raw: number): number => {
+  const n = state.players.length - 1;
+  return n > 0 ? raw / n : 0;
+};
+
+export const opponentThreatNormFeature: Feature = (state, me) =>
+  normByOpponents(state, opponentThreatFeature(state, me));
+
+export const opponentNobleProximityNormFeature: Feature = (state, me) =>
+  normByOpponents(state, opponentNobleProximityFeature(state, me));
+
+export const opponentNextBuyNormFeature: Feature = (state, me) =>
+  normByOpponents(state, opponentNextBuyFeature(state, me));
+
+// V7 mid-game: same v4 ingredients + opponent_next_buy, but all three
+// opponent features are per-opponent averages.
+export const FEATURES_V7: readonly WeightedFeature[] = [
+  { name: 'prestige',                      weight: 1.0, fn: prestigeFeature },
+  { name: 'bonus_count',                   weight: 0.5, fn: bonusCountFeature },
+  { name: 'noble_proximity',               weight: 1.0, fn: nobleProximityFeature },
+  { name: 'opponent_threat_norm',          weight: 0.5, fn: opponentThreatNormFeature },
+  { name: 'opponent_noble_proximity_norm', weight: 0.5, fn: opponentNobleProximityNormFeature },
+  { name: 'opponent_next_buy_norm',        weight: 0.5, fn: opponentNextBuyNormFeature },
+];
+
+// V7 race-mode: race-mode weights for prestige/bonus/noble + amplified
+// opponent threats (still normalized per-opponent).
+const FEATURES_V7_RACE: readonly WeightedFeature[] = [
+  { name: 'prestige',                      weight: 2.5, fn: prestigeFeature },
+  { name: 'bonus_count',                   weight: 0.2, fn: bonusCountFeature },
+  { name: 'noble_proximity',               weight: 1.5, fn: nobleProximityFeature },
+  { name: 'opponent_threat_norm',          weight: 1.0, fn: opponentThreatNormFeature },
+  { name: 'opponent_noble_proximity_norm', weight: 1.0, fn: opponentNobleProximityNormFeature },
+  { name: 'opponent_next_buy_norm',        weight: 1.5, fn: opponentNextBuyNormFeature },
+];
+
+export const evaluateV7: Feature = (state, player) =>
+  isEndgame(state)
+    ? evaluateWith(FEATURES_V7_RACE, state, player)
+    : evaluateWith(FEATURES_V7, state, player);
+
+// `evaluate` always points at the current best evaluator. v7 (v6 with
+// opponent features normalized by opponent count) currently leads. v6
+// regressed in 4P (−5pp vs v3) because the summed opponent_*  features
+// scaled with player count and biased the agent into over-defensive
+// play. v7 fixes that: tournament shows +3.8pp vs v3 *consistently
+// across 2P/3P/4P*. Rejected en route under depth-1 greedy:
+// concentration (Experiment 3), engine_value (Experiment 4),
+// gem_pressure (Experiment 5). See diary/phase-01-evaluator.md.
+export const evaluate: Feature = evaluateV7;
 
 // === Experimental v3-plus variants used to retest rejected features ===
 // Each variant adds one previously-rejected feature back on top of v3 at
