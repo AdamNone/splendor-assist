@@ -882,11 +882,6 @@ export default function AssistantApp() {
         <div className="header-row">
           <div>
             <h1>Splendor Assistant</h1>
-            <p className="sub">
-              Click a recommendation when it's your turn; pick the opponent's
-              action when it isn't. The engine enforces all rules so illegal
-              moves can't be entered. State persists between sessions.
-            </p>
           </div>
           <div className="header-actions">
             <button
@@ -955,6 +950,8 @@ export default function AssistantApp() {
         </div>
       </section>
 
+      <div className="body-grid">
+      <div className="board-col">
       <section className="card">
         <h2>Gem supply</h2>
         <div className="gem-row">
@@ -977,11 +974,6 @@ export default function AssistantApp() {
 
       <section className="card">
         <h2>Face-up cards</h2>
-        <p className="hint">
-          Click a slot to pick from that tier's cards. The picker shows every
-          card visually (bonus color, prestige, cost) so you can match the
-          physical card at a glance.
-        </p>
         {TIERS.slice().reverse().map((tier) => (
           <div key={tier} className="faceup-row tier-row">
             <span className="faceup-label">T{tier}</span>
@@ -1020,11 +1012,7 @@ export default function AssistantApp() {
       </section>
 
       <section className="card">
-        <h2>Nobles on the board</h2>
-        <p className="hint">
-          Click to toggle (up to {s.numPlayers + 1}). Standard rules deal
-          numPlayers + 1.
-        </p>
+        <h2>Nobles ({s.nobles.length}/{s.numPlayers + 1})</h2>
         <div className="noble-grid">
           {visibleNobles.map((n) => {
             const selected = s.nobles.some((x) => x.id === n.id);
@@ -1044,8 +1032,10 @@ export default function AssistantApp() {
         </div>
       </section>
 
+      </div>
+      <div className="side-col">
       <section className="card">
-        <h2>Player tableaus</h2>
+        <h2>Players</h2>
         {s.players.slice(0, s.numPlayers).map((p, idx) => (
           <PlayerPanel
             key={idx}
@@ -1233,6 +1223,8 @@ export default function AssistantApp() {
           </>
         )}
       </section>
+      </div>
+      </div>
     </div>
   );
 }
@@ -1937,12 +1929,6 @@ function OpponentTurnPanel({
       <div className="opp-header">
         <div>
           <div className="opp-title">{oppName}'s turn — what did they do?</div>
-          <p className="opp-sub">
-            All actions go through the engine, so illegal moves can't be
-            entered here. Edit their tableau above manually only for
-            unusual cases (discarding from over-cap, buying from their own
-            reserve, etc.).
-          </p>
         </div>
         <div className="opp-header-actions">
           <button

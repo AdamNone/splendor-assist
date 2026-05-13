@@ -1,11 +1,28 @@
 .assistant {
-  max-width: 980px;
+  max-width: 1480px;
   margin: 0 auto;
-  padding: 24px 20px 80px;
+  padding: 12px 16px 32px;
+}
+
+.body-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.board-col,
+.side-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  .body-grid { grid-template-columns: 1fr; }
 }
 
 .assistant header {
-  margin-bottom: 24px;
+  margin-bottom: 12px;
 }
 .assistant header .header-row {
   display: flex;
@@ -14,8 +31,8 @@
   gap: 16px;
 }
 .assistant header h1 {
-  margin: 0 0 4px;
-  font-size: 28px;
+  margin: 0;
+  font-size: 20px;
   letter-spacing: -0.02em;
 }
 .assistant header .sub {
@@ -61,11 +78,12 @@
   background: #fff;
 }
 .step-btn {
-  width: 24px;
+  width: 20px;
+  height: 22px;
   border: 0;
   background: #f9fafb;
   color: #4b5563;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
@@ -80,13 +98,14 @@
   cursor: not-allowed;
 }
 .step-input {
-  width: 36px;
+  width: 30px;
+  height: 22px;
   border: 0;
   border-left: 1px solid #e5e7eb;
   border-right: 1px solid #e5e7eb;
   background: transparent;
   text-align: center;
-  font-size: 13px;
+  font-size: 12px;
   font-family: inherit;
   font-variant-numeric: tabular-nums;
   color: #1f2937;
@@ -353,14 +372,17 @@
 .card {
   background: #fff;
   border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 18px 20px;
-  margin-bottom: 16px;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 0;
 }
 .card h2 {
-  margin: 0 0 12px;
-  font-size: 15px;
+  margin: 0 0 8px;
+  font-size: 13px;
   font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .card .hint {
   margin: -4px 0 12px;
@@ -376,7 +398,9 @@
 
 .setup {
   display: flex;
-  gap: 32px;
+  gap: 20px;
+  flex-wrap: wrap;
+  align-items: flex-end;
 }
 .setup .field {
   display: flex;
@@ -413,18 +437,18 @@
 
 .gem-row {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 .gem-cell {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
 }
 .swatch {
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
   border: 1px solid rgba(0, 0, 0, 0.08);
 }
 .swatch.inline {
@@ -455,7 +479,7 @@ input[type='number']:focus {
 }
 .faceup-tiles {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex: 1;
 }
 .faceup-label {
@@ -481,17 +505,17 @@ input[type='number']:focus {
 /* ===== Card art (used as slot + in picker) ===== */
 .card-art {
   position: relative;
-  width: 96px;
-  height: 132px;
+  width: 84px;
+  height: 116px;
   border-radius: 8px;
-  padding: 8px;
+  padding: 6px;
   box-sizing: border-box;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 .card-art.small {
-  width: 84px;
-  height: 116px;
-  padding: 6px;
+  width: 70px;
+  height: 96px;
+  padding: 5px;
 }
 .card-art.dark { color: rgba(255, 255, 255, 0.95); }
 .card-art.light { color: #1f2937; }
@@ -504,9 +528,16 @@ input[type='number']:focus {
   line-height: 1;
 }
 .card-art.small .card-prestige {
-  font-size: 18px;
-  top: 4px;
-  right: 6px;
+  font-size: 16px;
+  top: 3px;
+  right: 5px;
+}
+.card-art.small .card-cost-pip {
+  font-size: 10px;
+}
+.card-art.small .cost-pip-swatch {
+  width: 11px;
+  height: 11px;
 }
 .card-cost {
   position: absolute;
@@ -545,12 +576,12 @@ input[type='number']:focus {
   cursor: pointer;
 }
 .card-slot.empty {
-  width: 84px;
-  height: 116px;
+  width: 70px;
+  height: 96px;
   border: 2px dashed #d1d5db;
   border-radius: 8px;
   color: #9ca3af;
-  font-size: 13px;
+  font-size: 12px;
   font-family: inherit;
 }
 .card-slot.empty:hover {
@@ -648,8 +679,8 @@ input[type='number']:focus {
 
 .noble-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, max-content));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(80px, max-content));
+  gap: 6px;
 }
 .noble-tile {
   appearance: none;
@@ -704,8 +735,8 @@ input[type='number']:focus {
 .player-panel {
   border: 1px solid #e5e7eb;
   border-radius: 8px;
-  padding: 12px 14px;
-  margin-bottom: 10px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
   background: #fafaf7;
 }
 .player-panel.current {
@@ -716,8 +747,8 @@ input[type='number']:focus {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
-  font-size: 14px;
+  margin-bottom: 6px;
+  font-size: 13px;
 }
 .player-name-input {
   appearance: none;
@@ -761,10 +792,10 @@ input[type='number']:focus {
 }
 .player-row {
   display: grid;
-  grid-template-columns: 72px 1fr;
+  grid-template-columns: 60px 1fr;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 6px;
+  gap: 8px;
+  margin-bottom: 3px;
 }
 .player-label {
   font-size: 12px;
@@ -867,7 +898,7 @@ input[type='number']:focus {
 .recommend {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 .recommend-header {
@@ -875,9 +906,10 @@ input[type='number']:focus {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+  margin-bottom: 4px;
 }
 .recommend-header > strong {
-  font-size: 15px;
+  font-size: 14px;
 }
 .recommend-status {
   display: flex;
@@ -969,7 +1001,7 @@ input[type='number']:focus {
 .issues > div + div { margin-top: 4px; }
 
 .recommendation {
-  padding: 14px 16px;
+  padding: 10px 12px;
   background: #f0fdf4;
   border: 1px solid #86efac;
   border-radius: 10px;
@@ -981,16 +1013,16 @@ input[type='number']:focus {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 8px 12px;
   background: #fff;
   border: 1px solid #bbf7d0;
   border-radius: 8px;
   font-family: inherit;
-  font-size: 13px;
+  font-size: 12px;
   color: #064e3b;
   cursor: pointer;
   text-align: left;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
   transition: background 100ms ease, border-color 100ms ease;
 }
 .rec-option:disabled {
@@ -1088,18 +1120,18 @@ input[type='number']:focus {
 }
 
 .why {
-  padding: 10px 12px;
+  padding: 6px 10px;
   background: rgba(255, 255, 255, 0.6);
   border: 1px solid #bbf7d0;
   border-radius: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
 .strategy {
-  padding: 10px 12px;
+  padding: 6px 10px;
   background: #fefce8;
   border: 1px solid #fde68a;
   border-radius: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
 .strategy-title {
   font-size: 11px;
