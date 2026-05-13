@@ -1433,10 +1433,27 @@ function CardPickerModal({
   onPick: (card: Card | null) => void;
   onClose: () => void;
 }) {
-  const cards = useMemo(
-    () => ALL_CARDS.filter((c) => c.tier === tier),
-    [tier],
-  );
+  // Show only cards still in the deck (or the currently-selected card if any,
+  // so the user can keep their existing pick). Sort by bonus colour, then by
+  // prestige ascending, then by total cost — same order in every tier so the
+  // black cards always live at the same end of the picker.
+  const cards = useMemo(() => {
+    const colorRank: Record<Color, number> = {
+      white: 0, blue: 1, green: 2, red: 3, black: 4,
+    };
+    const totalCost = (c: Card) =>
+      c.cost.white + c.cost.blue + c.cost.green + c.cost.red + c.cost.black;
+    return ALL_CARDS
+      .filter((c) => c.tier === tier)
+      .filter((c) => !unavailableIds.has(c.id) || c.id === selected?.id)
+      .sort((a, b) => {
+        const r = colorRank[a.bonus] - colorRank[b.bonus];
+        if (r !== 0) return r;
+        const p = a.prestige - b.prestige;
+        if (p !== 0) return p;
+        return totalCost(a) - totalCost(b);
+      });
+  }, [tier, unavailableIds, selected]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1471,17 +1488,13 @@ function CardPickerModal({
           <div className="picker-grid">
             {cards.map((c) => {
               const isSelected = selected?.id === c.id;
-              const isUnavailable = unavailableIds.has(c.id) && !isSelected;
               return (
                 <button
                   key={c.id}
                   type="button"
-                  className={`picker-tile ${isSelected ? 'selected' : ''} ${isUnavailable ? 'unavailable' : ''}`}
-                  onClick={() => {
-                    if (!isUnavailable) onPick(c);
-                  }}
-                  disabled={isUnavailable}
-                  title={isUnavailable ? `${c.id} — already placed in another slot` : c.id}
+                  className={`picker-tile ${isSelected ? 'selected' : ''}`}
+                  onClick={() => onPick(c)}
+                  title={c.id}
                 >
                   <CardArt card={c} />
                 </button>
