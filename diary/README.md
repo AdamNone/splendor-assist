@@ -20,7 +20,8 @@ The diary is the canonical record of the *thinking*. Code in `src/` is the canon
 - [Phase 1 — Handcrafted evaluator](phase-01-evaluator.md) (v3: prestige + bonus_count + noble_proximity + opponent_threat)
 - [Phase 2 — Lookahead search](phase-02-search.md) (v3: alpha-beta + max-N + move ordering + iterative deepening)
 - [Phase 3 — MCTS](phase-03-mcts.md) (v1: plain MCTS; ISMCTS with determinization queued for v2)
-- Phase 4 — Learned components *(optional)*
+- [Phase 4 — Evaluator iteration & weight tuning](phase-04-tuning.md) (v4 → v9, coordinate-descent tuner, measurement pitfalls)
+- Phase 5 — Learned components *(optional)*
 
 ## A note on pace
 
