@@ -67,11 +67,19 @@ type AssistantState = {
    * auto-recommendations. Defaults to P0; reconfigurable in the header.
    */
   mainPlayer: PlayerIndex;
+  /**
+   * Optional display names per seat. Index `i` is the name for player at
+   * seat `i`. Empty string (or missing entry) falls back to "P0" / "P1" /
+   * etc. at display time.
+   */
+  playerNames: string[];
   gemSupply: GemPool;
   faceUp: FaceUpGrid;
   nobles: Noble[];
   players: PlayerForm[];
 };
+
+const defaultPlayerName = (idx: number): string => `P${idx}`;
 
 const emptyPlayer = (): PlayerForm => ({
   bonuses: emptyColorCount(),
@@ -103,6 +111,7 @@ const initialState = (): AssistantState => {
       return {
         ...parsed,
         mainPlayer: (parsed.mainPlayer ?? 0) as PlayerIndex,
+        playerNames: Array.isArray(parsed.playerNames) ? parsed.playerNames : [],
         faceUp: rehydrateGrid(parsed.faceUp),
         nobles: parsed.nobles
           .map((n) => noblesById.get(n.id))
@@ -116,6 +125,7 @@ const initialState = (): AssistantState => {
     numPlayers: 2,
     currentPlayer: 0,
     mainPlayer: 0,
+    playerNames: [],
     gemSupply: { ...GEM_SUPPLY_DEFAULT[2] },
     faceUp: emptyFaceUp(),
     nobles: [],
@@ -149,6 +159,7 @@ const fromGameState = (gs: GameState, prev: AssistantState): AssistantState => (
   numPlayers: gs.numPlayers,
   currentPlayer: gs.currentPlayer,
   mainPlayer: prev.mainPlayer,
+  playerNames: prev.playerNames,
   gemSupply: { ...gs.gemSupply },
   faceUp: {
     1: gs.faceUp[1].slice(),
@@ -261,6 +272,37 @@ export default function AssistantApp() {
     setS((prev) => ({ ...prev, mainPlayer: idx }));
   };
 
+  const setPlayerName = (idx: number, name: string) => {
+    setS((prev) => {
+      const names = prev.playerNames.slice();
+      while (names.length <= idx) names.push('');
+      names[idx] = name;
+      return { ...prev, playerNames: names };
+    });
+  };
+
+  // Returns the user-set name for a seat, or the default "P0"/"P1"/etc.
+  const playerLabel = (idx: number): string => {
+    const name = s.playerNames[idx];
+    return name !== undefined && name.trim().length > 0
+      ? name.trim()
+      : defaultPlayerName(idx);
+  };
+
+  // Replace "P{n}" tokens in a narration string with the user-set names.
+  // Used to convert engine-side action descriptions ("T0 P0 buy ...") into
+  // user-friendly ones ("T0 Alice buy ..."). Whole-word boundary on the
+  // index so "P10" wouldn't get mangled (though we cap at 4 players anyway).
+  const namifyNarration = (raw: string): string => {
+    let out = raw;
+    for (let i = 0; i < s.numPlayers; i++) {
+      const name = s.playerNames[i];
+      if (name === undefined || name.trim().length === 0) continue;
+      out = out.replace(new RegExp(`\\bP${i}\\b`, 'g'), name.trim());
+    }
+    return out;
+  };
+
   const setSupplyGem = (c: GemColor, value: number) => {
     setS((prev) => ({ ...prev, gemSupply: { ...prev.gemSupply, [c]: Math.max(0, value) } }));
   };
@@ -317,6 +359,7 @@ export default function AssistantApp() {
       numPlayers: prev.numPlayers,
       currentPlayer: 0,
       mainPlayer: prev.mainPlayer,
+      playerNames: prev.playerNames.slice(),
       gemSupply: { ...GEM_SUPPLY_DEFAULT[prev.numPlayers] },
       faceUp: emptyFaceUp(),
       nobles: [],
@@ -524,7 +567,7 @@ export default function AssistantApp() {
                 className={`pill ${s.currentPlayer === i ? 'active' : ''}`}
                 onClick={() => setCurrentPlayer(i as PlayerIndex)}
               >
-                P{i}
+                {playerLabel(i)}
               </button>
             ))}
           </div>
@@ -540,7 +583,7 @@ export default function AssistantApp() {
                 className={`pill ${s.mainPlayer === i ? 'active' : ''}`}
                 onClick={() => setMainPlayer(i as PlayerIndex)}
               >
-                P{i}
+                {playerLabel(i)}
               </button>
             ))}
           </div>
@@ -630,8 +673,10 @@ export default function AssistantApp() {
           <PlayerPanel
             key={idx}
             idx={idx}
+            name={s.playerNames[idx] ?? ''}
             isCurrent={idx === s.currentPlayer}
             player={p}
+            onName={(name) => setPlayerName(idx, name)}
             onBonus={(c, v) => setPlayerBonus(idx, c, v)}
             onGem={(c, v) => setPlayerGem(idx, c, v)}
             onPrestige={(v) => setPlayerPrestige(idx, v)}
@@ -643,6 +688,7 @@ export default function AssistantApp() {
         {s.currentPlayer !== s.mainPlayer ? (
           <OpponentTurnPanel
             assistantState={s}
+            playerLabel={playerLabel}
             onApply={onApply}
             onSkip={() => setCurrentPlayer(s.mainPlayer)}
             errors={errors}
@@ -650,7 +696,7 @@ export default function AssistantApp() {
         ) : (
           <>
             <div className="recommend-header">
-              <strong>Your turn (P{s.mainPlayer})</strong>
+              <strong>Your turn ({playerLabel(s.mainPlayer)})</strong>
               <div className="recommend-status">
                 {thinking && <span className="thinking-indicator">Thinking…</span>}
                 <button
@@ -681,7 +727,7 @@ export default function AssistantApp() {
                   <div className="rec-option-left">
                     <span className="rec-option-tag">Recommended</span>
                     <span className="rec-option-summary">
-                      {recommendation.summary}
+                      {namifyNarration(recommendation.summary)}
                     </span>
                   </div>
                   <span className="rec-option-cta">Click to apply →</span>
@@ -700,7 +746,7 @@ export default function AssistantApp() {
                         className={`winrate-row ${isMe ? 'me' : ''}`}
                       >
                         <span className="winrate-label">
-                          P{i}{isMe ? ' (to move)' : ''}
+                          {playerLabel(i)}{isMe ? ' (to move)' : ''}
                         </span>
                         <div className="winrate-bar">
                           <div
@@ -725,7 +771,9 @@ export default function AssistantApp() {
                         onClick={() => onApply(a.action)}
                         disabled={thinking}
                       >
-                        <span className="rec-option-summary">{a.summary}</span>
+                        <span className="rec-option-summary">
+                          {namifyNarration(a.summary)}
+                        </span>
                         <span className="alt-meta">
                           {(a.meanReward * 100).toFixed(0)}% · {a.visits} visits
                         </span>
@@ -943,15 +991,19 @@ function StepCounter({
 
 function PlayerPanel({
   idx,
+  name,
   isCurrent,
   player,
+  onName,
   onBonus,
   onGem,
   onPrestige,
 }: {
   idx: number;
+  name: string;
   isCurrent: boolean;
   player: PlayerForm;
+  onName: (name: string) => void;
   onBonus: (c: Color, v: number) => void;
   onGem: (c: GemColor, v: number) => void;
   onPrestige: (v: number) => void;
@@ -959,7 +1011,16 @@ function PlayerPanel({
   return (
     <div className={`player-panel ${isCurrent ? 'current' : ''}`}>
       <div className="player-header">
-        <strong>P{idx}</strong>
+        <input
+          type="text"
+          className="player-name-input"
+          value={name}
+          onChange={(e) => onName(e.target.value)}
+          placeholder={`P${idx}`}
+          spellCheck={false}
+          maxLength={24}
+          aria-label={`Name for player ${idx}`}
+        />
         {isCurrent && <span className="badge">to move</span>}
       </div>
       <div className="player-row">
@@ -1016,11 +1077,13 @@ type OpponentActionType = 'take3' | 'take2' | 'reserve' | 'buy';
 
 function OpponentTurnPanel({
   assistantState,
+  playerLabel,
   onApply,
   onSkip,
   errors,
 }: {
   assistantState: AssistantState;
+  playerLabel: (idx: number) => string;
   onApply: (action: Action) => void;
   onSkip: () => void;
   errors: string[];
@@ -1028,6 +1091,7 @@ function OpponentTurnPanel({
   const state = useMemo(() => buildGameState(assistantState), [assistantState]);
   const opp = state.players[state.currentPlayer];
   const oppIdx = state.currentPlayer;
+  const oppName = playerLabel(oppIdx);
 
   const [actionType, setActionType] = useState<OpponentActionType | null>(null);
   const [take3Colors, setTake3Colors] = useState<Color[]>([]);
@@ -1067,7 +1131,7 @@ function OpponentTurnPanel({
     if (overcap) {
       return (
         <p className="picker-disabled">
-          P{oppIdx} already holds {oppGems} gems — can't take any more without
+          {oppName} already holds {oppGems} gems — can't take any more without
           discarding. If they discarded, edit gems manually.
         </p>
       );
@@ -1123,7 +1187,7 @@ function OpponentTurnPanel({
     if (headroom < 2) {
       return (
         <p className="picker-disabled">
-          P{oppIdx} can't fit 2 more gems (currently has {oppGems}).
+          {oppName} can't fit 2 more gems (currently has {oppGems}).
         </p>
       );
     }
@@ -1169,7 +1233,7 @@ function OpponentTurnPanel({
     if (reserveGemAdded > headroom) {
       return (
         <p className="picker-disabled">
-          P{oppIdx} can't take the gold from reserving — they're at the
+          {oppName} can't take the gold from reserving — they're at the
           {' '}10-gem cap. Edit their gems manually if they discarded.
         </p>
       );
@@ -1238,7 +1302,7 @@ function OpponentTurnPanel({
     if (buyable.length === 0) {
       return (
         <p className="picker-disabled">
-          P{oppIdx} can't afford any face-up card. (Buying from their own
+          {oppName} can't afford any face-up card. (Buying from their own
           reserve isn't tracked in v0.4 — edit manually if it happens.)
         </p>
       );
@@ -1246,7 +1310,7 @@ function OpponentTurnPanel({
     return (
       <>
         <p className="picker-hint">
-          Pick the card P{oppIdx} bought. Only cards they can afford are
+          Pick the card {oppName} bought. Only cards they can afford are
           shown; payment is computed automatically.
         </p>
         <div className="picker-buy-grid">
@@ -1276,7 +1340,7 @@ function OpponentTurnPanel({
     <div className="opponent-panel">
       <div className="opp-header">
         <div>
-          <div className="opp-title">P{oppIdx}'s turn — what did they do?</div>
+          <div className="opp-title">{oppName}'s turn — what did they do?</div>
           <p className="opp-sub">
             All actions go through the engine, so illegal moves can't be
             entered here. Edit their tableau above manually only for
@@ -1285,7 +1349,7 @@ function OpponentTurnPanel({
           </p>
         </div>
         <button type="button" className="opp-skip-btn" onClick={onSkip}>
-          Skip P{oppIdx} (they passed) →
+          Skip {oppName} (they passed) →
         </button>
       </div>
 

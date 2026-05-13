@@ -660,6 +660,37 @@ input[type='number']:focus {
   margin-bottom: 10px;
   font-size: 14px;
 }
+.player-name-input {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  color: #1f2937;
+  padding: 3px 6px;
+  border-radius: 4px;
+  width: 160px;
+  height: auto;
+}
+.player-name-input::placeholder {
+  color: #9ca3af;
+  font-weight: 500;
+}
+.player-name-input:hover {
+  background: #f3f4f6;
+}
+.player-name-input:focus {
+  outline: none;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(31, 41, 55, 0.18);
+}
+.player-panel.current .player-name-input {
+  color: #92400e;
+}
+.player-panel.current .player-name-input:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
 .player-header .badge {
   font-size: 10px;
   text-transform: uppercase;
