@@ -19,9 +19,11 @@ import {
 import type {
   Action,
   Card,
+  CardSource,
   Color,
   ColorCount,
   GameState,
+  GemColor,
   GemPool,
   Noble,
   PlayerIndex,
@@ -160,6 +162,30 @@ const emptyFaceUp = (): FaceUpGrid => ({
 });
 
 const DEFAULT_STORAGE_KEY = 'splendor-assistant-state-v1';
+const HIDE_SUGGESTIONS_STORAGE_KEY = 'splendor-hide-suggestions-v1';
+const LIVE_ITERATIONS_STORAGE_KEY = 'splendor-live-iterations-v1';
+const LIVE_ITERATION_OPTIONS = [300, 500, 1000, 2000, 5000] as const;
+
+const loadHideSuggestions = (): boolean => {
+  try {
+    return localStorage.getItem(HIDE_SUGGESTIONS_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+
+const loadLiveIterations = (): number => {
+  try {
+    const raw = localStorage.getItem(LIVE_ITERATIONS_STORAGE_KEY);
+    const n = raw === null ? NaN : Number(raw);
+    if (Number.isFinite(n) && (LIVE_ITERATION_OPTIONS as readonly number[]).includes(n)) {
+      return n;
+    }
+  } catch {
+    /* ignore */
+  }
+  return 300;
+};
 
 const initialState = (storageKey: string): AssistantState => {
   try {
@@ -736,6 +762,14 @@ export default function AssistantApp({
   // identity, replacing the guess so subsequent recommendations are sound.
   const [pendingBlindReserveTier, setPendingBlindReserveTier] =
     useState<Tier | null>(null);
+  // When the user clicks "buy" on a blind reserve, defer the buy until they
+  // pick the real card identity. Without this the buy would commit using
+  // the engine's guess card, which is what the user is trying to avoid.
+  const [pendingBlindBuy, setPendingBlindBuy] = useState<{
+    playerIdx: number;
+    reservedIndex: number;
+    tier: Tier;
+  } | null>(null);
   // When a turn auto-awards a noble but the player was eligible for
   // multiple, hold the post-apply state and the alternatives so the user
   // can swap before commit. apply() picks the first qualifying noble in
@@ -755,6 +789,20 @@ export default function AssistantApp({
   // on app load — not persisted.
   const [simRunning, setSimRunning] = useState(false);
   const [simSpeedMs, setSimSpeedMs] = useState(1200);
+  // Hide MCTS-driven suggestions for honest play. When true: auto-recommend
+  // is skipped, "Recompute"/opponent "Suggest" buttons are hidden, the
+  // recommendation panel is suppressed, and per-player win-share pills are
+  // dropped. Sim mode ignores this — it needs MCTS to drive the engine.
+  const [hideSuggestions, setHideSuggestions] = useState<boolean>(
+    () => mode === 'assistant' && loadHideSuggestions(),
+  );
+  // MCTS iterations used by every live recommendation path:
+  //   - auto-recommend (debounced on state change)
+  //   - Recompute (deeper) button
+  //   - Opponent Suggest button
+  // Higher = better picks, slower UI refresh. Persisted so the user's
+  // choice survives reloads.
+  const [liveIterations, setLiveIterations] = useState<number>(loadLiveIterations);
   // Game analysis (Phase G): per-turn "what if optimal?" plus a full
   // counterfactual replay from the initial position with MCTS on both
   // sides. Expensive (~10–20s per game) so it only runs on demand and
@@ -765,6 +813,14 @@ export default function AssistantApp({
     actualWinShares: number[] | null;
     /** How much win-share the actor gave up by not playing the engine's pick. Clamped to [0, 1]. */
     loss: number;
+    /** Engine's recommended action at this turn (for the blunder breakdown). */
+    bestAction: Action;
+    /** What the user actually played. */
+    actualAction: Action;
+    /** Narration of the recommended action (human-readable). */
+    bestNarration: string;
+    /** Narration of the actual action. */
+    actualNarration: string;
   };
   type Counterfactual = {
     winnerIdx: number;
@@ -779,6 +835,7 @@ export default function AssistantApp({
   const [analysis, setAnalysis] = useState<GameAnalysis | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState<string>('');
+  const [analysisIterations, setAnalysisIterations] = useState<number>(300);
 
   const pushHistory = (prev: AssistantState) => {
     setHistory((h) => [prev, ...h].slice(0, MAX_HISTORY));
@@ -797,6 +854,35 @@ export default function AssistantApp({
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify(s));
   }, [storageKey, s]);
+
+  // startingPlayer defaults to 0 on a fresh game, but the actual first
+  // player is whoever was set as currentPlayer when the first action was
+  // committed. If they disagree, sync — without this, isTerminal checks the
+  // wrong wrap point and the game never ends.
+  useEffect(() => {
+    const first = s.gameLog[0];
+    if (first === undefined) return;
+    const actor = first.snapshotBefore.currentPlayer;
+    if (actor === s.startingPlayer) return;
+    setS((prev) => ({ ...prev, startingPlayer: actor as PlayerIndex }));
+  }, [s.gameLog, s.startingPlayer]);
+
+  useEffect(() => {
+    if (mode !== 'assistant') return;
+    try {
+      localStorage.setItem(HIDE_SUGGESTIONS_STORAGE_KEY, hideSuggestions ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }, [hideSuggestions, mode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LIVE_ITERATIONS_STORAGE_KEY, String(liveIterations));
+    } catch {
+      /* ignore */
+    }
+  }, [liveIterations]);
 
   // ===== Setters helpers =====
 
@@ -862,6 +948,10 @@ export default function AssistantApp({
 
   const setCurrentPlayer = (idx: PlayerIndex) => {
     setS((prev) => ({ ...prev, currentPlayer: idx }));
+  };
+
+  const setStartingPlayer = (idx: PlayerIndex) => {
+    setS((prev) => ({ ...prev, startingPlayer: idx }));
   };
 
   const resetGame = () => {
@@ -968,7 +1058,7 @@ export default function AssistantApp({
    * strength from the start, who wins?"). Async with setTimeout(0) yields
    * so the UI stays responsive during the ~10–20s computation.
    */
-  const runAnalysis = async () => {
+  const runAnalysis = async (iterations: number = 300) => {
     if (analyzing || s.gameLog.length < 2) return;
     setAnalyzing(true);
     setAnalysisProgress('starting…');
@@ -977,6 +1067,25 @@ export default function AssistantApp({
       const yieldFrame = () => new Promise((resolve) => setTimeout(resolve, 0));
 
       // --- Per-turn re-score ---
+      // Canonical action serializer so we can match the user's action against
+      // an MCTS candidate. Take3's color order isn't normalized by the UI so
+      // we sort it for the comparison.
+      const canonAction = (a: Action): string => {
+        switch (a.type) {
+          case 'take3':
+            return `take3:${[...a.colors].sort().join(',')}`;
+          case 'take2':
+            return `take2:${a.color}`;
+          case 'reserve':
+            return a.source.kind === 'faceUp'
+              ? `reserve:fu:T${a.source.tier}:s${a.source.slot}`
+              : `reserve:deck:T${a.source.tier}`;
+          case 'buy':
+            return a.source.kind === 'faceUp'
+              ? `buy:fu:T${a.source.tier}:s${a.source.slot}`
+              : `buy:r:${a.source.index}`;
+        }
+      };
       const perTurn: AnalysisPerTurn[] = [];
       for (let i = 0; i < s.gameLog.length; i++) {
         setAnalysisProgress(`scoring move ${i + 1} / ${s.gameLog.length}`);
@@ -984,20 +1093,32 @@ export default function AssistantApp({
         const entry = s.gameLog[i];
         if (entry === undefined) continue;
         const stats = mctsBestActionWithStats(entry.snapshotBefore, {
-          iterations: 300,
+          iterations,
           evalFn: evaluateV9,
           rng: seededRng((Date.now() ^ i) & 0xffff_ffff),
         });
         const bestWinShares = normalizeWinRates(stats.winRates);
         const actor = entry.snapshotBefore.currentPlayer;
-        const actualWinShares = entry.winShares;
-        const loss = actualWinShares !== null
-          ? Math.max(
-              0,
-              (bestWinShares[actor] ?? 0) - (actualWinShares[actor] ?? 0),
-            )
+        // Loss = delta between the best candidate's value and the user's
+        // candidate's value, both from the actor's perspective. Falls back
+        // to 0 if the user's action isn't in MCTS's candidate set (shouldn't
+        // happen for legal moves, but defensive).
+        const bestCand = stats.candidates[0];
+        const userKey = canonAction(entry.action);
+        const userCand = stats.candidates.find((c) => canonAction(c.action) === userKey);
+        const loss = bestCand !== undefined && userCand !== undefined
+          ? Math.max(0, bestCand.meanReward - userCand.meanReward)
           : 0;
-        perTurn.push({ actor, bestWinShares, actualWinShares, loss });
+        perTurn.push({
+          actor,
+          bestWinShares,
+          actualWinShares: entry.winShares,
+          loss,
+          bestAction: stats.bestAction,
+          actualAction: entry.action,
+          bestNarration: narrate(entry.snapshotBefore, stats.bestAction),
+          actualNarration: narrate(entry.snapshotBefore, entry.action),
+        });
       }
 
       // --- Counterfactual replay from initial state ---
@@ -1029,7 +1150,7 @@ export default function AssistantApp({
           continue;
         }
         const stats = mctsBestActionWithStats(cf, {
-          iterations: 300,
+          iterations,
           evalFn: evaluateV9,
           rng: seededRng((Date.now() ^ (safety + 1000)) & 0xffff_ffff),
         });
@@ -1229,6 +1350,15 @@ export default function AssistantApp({
   };
 
   const onApply = (action: Action) => {
+    if (unfilledFaceUpSlots.length > 0) {
+      const labels = unfilledFaceUpSlots
+        .map((u) => `T${u.tier} slot ${u.slot + 1}`)
+        .join(', ');
+      setErrors([
+        `Refill the empty face-up slot${unfilledFaceUpSlots.length === 1 ? '' : 's'} (${labels}) before committing the next move.`,
+      ]);
+      return;
+    }
     try {
       const state = buildGameState(s);
       const next = apply(state, action);
@@ -1251,6 +1381,91 @@ export default function AssistantApp({
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setErrors([`Apply failed: ${message}`]);
+    }
+  };
+
+  /**
+   * Resolves a "buy a blind reserve" flow: the user clicked Buy on a blind
+   * reserve, then picked the real card identity. Reveal the reserve, recompute
+   * payment against the real card's cost (the engine guess's cost can differ),
+   * then commit the buy atomically against the revealed state.
+   */
+  const applyBlindReserveBuy = (
+    playerIdx: number,
+    reservedIndex: number,
+    real: Card,
+  ) => {
+    if (unfilledFaceUpSlots.length > 0) {
+      const labels = unfilledFaceUpSlots
+        .map((u) => `T${u.tier} slot ${u.slot + 1}`)
+        .join(', ');
+      setErrors([
+        `Refill the empty face-up slot${unfilledFaceUpSlots.length === 1 ? '' : 's'} (${labels}) before committing the next move.`,
+      ]);
+      setPendingBlindBuy(null);
+      return;
+    }
+    try {
+      const target = s.players[playerIdx];
+      if (target === undefined) return;
+      const existing = target.reserved[reservedIndex];
+      if (existing === undefined) return;
+      // Build the revealed intermediate state without committing to React yet.
+      const players = s.players.slice();
+      const reserved = target.reserved.slice();
+      reserved[reservedIndex] = { card: real };
+      players[playerIdx] = { ...target, reserved };
+      const seen = new Set(s.seenIds);
+      seen.delete(existing.card.id);
+      seen.add(real.id);
+      const intermediate: AssistantState = {
+        ...s,
+        players,
+        seenIds: Array.from(seen),
+      };
+      const state = buildGameState(intermediate);
+      const buyer = state.players[playerIdx];
+      if (buyer === undefined) return;
+      const payment = computePayment(real, buyer);
+      if (payment === null) {
+        // Affordability changed once the real cost is known — flush the reveal
+        // so the user keeps progress, but block the buy and surface why.
+        pushHistory(s);
+        setS(intermediate);
+        setPendingBlindBuy(null);
+        setErrors([
+          `Cannot afford ${real.id} (${playerLabel(playerIdx)} lacks gems for the real cost). Pick a different card to buy or undo.`,
+        ]);
+        return;
+      }
+      const action: Action = {
+        type: 'buy',
+        source: { kind: 'reserve', index: reservedIndex },
+        payment,
+      };
+      const next = apply(state, action);
+      pushHistory(s);
+      const newSeen = collectSeen(next, intermediate.seenIds);
+      const choice = detectMultiNobleChoice(state, next, newSeen);
+      if (choice !== null) {
+        // Reflect the reveal in s while we wait for the noble pick. preState
+        // captures the revealed pre-buy state so the game log is accurate.
+        setS(intermediate);
+        setPendingNobleChoice({ ...choice, action, preState: state });
+        setPendingBlindBuy(null);
+        return;
+      }
+      commitApplied(next, newSeen, {
+        action,
+        snapshotBefore: state,
+        winShares: recommendation !== null
+          ? normalizeWinRates(recommendation.winRates)
+          : null,
+      });
+      setPendingBlindBuy(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setErrors([`Blind buy failed: ${message}`]);
     }
   };
 
@@ -1492,10 +1707,52 @@ export default function AssistantApp({
   // End-of-round terminality: someone hit 15 prestige AND we've wrapped
   // back to the starting seat (every player got an equal number of turns).
   const gameOver = useMemo(() => isTerminal(engineState), [engineState]);
-  const gameWinner = useMemo(
-    () => (gameOver ? winner(engineState) : null),
-    [gameOver, engineState],
-  );
+  // Per-player purchased cards, reconstructed from gameLog. The form-side
+  // PlayerForm only stores aggregate bonus counts; the actual card history
+  // lives in gameLog buy entries (snapshotBefore + action lets us recover
+  // each bought card exactly). Used by PlayerPanel to render mini card art
+  // and as the tiebreaker for gameWinner.
+  const purchasedByPlayer = useMemo(() => {
+    const out: Card[][] = Array.from({ length: s.numPlayers }, () => []);
+    for (const entry of s.gameLog) {
+      if (entry.action.type !== 'buy') continue;
+      const buyerIdx = entry.snapshotBefore.currentPlayer;
+      if (buyerIdx < 0 || buyerIdx >= s.numPlayers) continue;
+      let card: Card | undefined;
+      if (entry.action.source.kind === 'faceUp') {
+        const { tier, slot } = entry.action.source;
+        card = entry.snapshotBefore.faceUp[tier][slot] ?? undefined;
+      } else {
+        const buyer = entry.snapshotBefore.players[buyerIdx];
+        card = buyer?.reserved[entry.action.source.index]?.card;
+      }
+      if (card !== undefined) out[buyerIdx]!.push(card);
+    }
+    return out;
+  }, [s.gameLog, s.numPlayers]);
+  const gameWinner = useMemo(() => {
+    if (!gameOver) return null;
+    // Engine's winner() uses purchased.length for the tiebreaker, but
+    // buildGameState resets purchased to [] (PlayerForm only stores aggregate
+    // bonuses). So we redo the tiebreaker here with the real card counts
+    // reconstructed from gameLog.
+    let bestIdx = 0;
+    let bestPrestige = -Infinity;
+    let bestCards = Infinity;
+    for (let i = 0; i < s.numPlayers; i++) {
+      const prestige = s.players[i]?.prestige ?? 0;
+      const cards = purchasedByPlayer[i]?.length ?? 0;
+      if (
+        prestige > bestPrestige
+        || (prestige === bestPrestige && cards < bestCards)
+      ) {
+        bestPrestige = prestige;
+        bestCards = cards;
+        bestIdx = i;
+      }
+    }
+    return bestIdx;
+  }, [gameOver, s.numPlayers, s.players, purchasedByPlayer]);
   // "Game ending after this round" warning while at least one player is at
   // 15+ but we haven't wrapped to startingPlayer yet.
   const gameEndingSoon = useMemo(
@@ -1505,6 +1762,62 @@ export default function AssistantApp({
       && engineState.players.some((p) => p.prestige >= 15),
     [gameOver, engineState],
   );
+
+  // Ground-truth "what's been seen" derived from authoritative sources:
+  //   - current face-up cards (still on the board)
+  //   - current reserved cards (incl. blind-reserve engine guesses)
+  //   - purchased cards reconstructed from gameLog buy actions
+  // This is independent of s.seenIds, which is maintained incrementally and
+  // can drift (face-up corrections, manual clears, etc.). Comparing the two
+  // exposes drift; the resync button overwrites seenIds with this set.
+  const derivedSeenIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const tier of TIERS) {
+      for (const c of s.faceUp[tier]) {
+        if (c !== null) ids.add(c.id);
+      }
+    }
+    for (const p of s.players.slice(0, s.numPlayers)) {
+      for (const r of p.reserved) ids.add(r.card.id);
+    }
+    for (const tierCards of purchasedByPlayer) {
+      for (const c of tierCards) ids.add(c.id);
+    }
+    return ids;
+  }, [s.faceUp, s.players, s.numPlayers, purchasedByPlayer]);
+
+  // Card IDs the engine is using as MCTS placeholders for blind reserves,
+  // grouped by tier. These are NOT real "seen" cards — when a reveal picker
+  // opens, every guess of the matching tier must be released from
+  // unavailableIds so the user can pick any card legally still in the deck.
+  const blindGuessIdsByTier = useMemo(() => {
+    const out: Record<Tier, Set<string>> = {
+      1: new Set(),
+      2: new Set(),
+      3: new Set(),
+    };
+    for (const p of s.players.slice(0, s.numPlayers)) {
+      for (const r of p.reserved) {
+        if (r.blind === true) out[r.card.tier].add(r.card.id);
+      }
+    }
+    return out;
+  }, [s.players, s.numPlayers]);
+
+  // Face-up slots that are empty *and* fillable (deck for that tier still has
+  // cards). Standard Splendor rules: you can't take a turn until the board
+  // is refilled. Anything that commits a turn is gated on this being empty.
+  const unfilledFaceUpSlots = useMemo(() => {
+    const out: { tier: Tier; slot: number }[] = [];
+    for (const tier of TIERS) {
+      const deckHasCards = tierDeckRemaining(s, tier).length > 0;
+      if (!deckHasCards) continue;
+      for (let slot = 0; slot < s.faceUp[tier].length; slot++) {
+        if (s.faceUp[tier][slot] === null) out.push({ tier, slot });
+      }
+    }
+    return out;
+  }, [s]);
 
   // ===== Auto-recommend =====
 
@@ -1522,19 +1835,29 @@ export default function AssistantApp({
       setRecommendation(null);
       return;
     }
+    // User opted out of suggestions — don't burn cycles or tempt them.
+    // Sim mode ignores this flag (it needs MCTS to drive the engine).
+    if (hideSuggestions && mode === 'assistant') {
+      setRecommendation(null);
+      return;
+    }
     // Sim is driving — don't fight it with the auto-recommend.
     if (simRunning) {
+      return;
+    }
+    // Skip auto-recommend on opponent turns in Assistant mode — the user
+    // doesn't need to think for their opponents, and the user can still
+    // click "Suggest" in the opponent panel if they want a one-off pick.
+    // Sim mode runs MCTS for everyone (it drives both sides).
+    if (mode === 'assistant' && s.currentPlayer !== s.mainPlayer) {
+      setRecommendation(null);
       return;
     }
     // Validation must pass before we burn cycles on a doomed run.
     const issues = validate();
     if (issues.length > 0) return;
-    // Auto-recommend fires for every turn now (not just the main player's),
-    // so the per-player win pills stay populated regardless of whose turn
-    // it is. The recommendation panel uses the same MCTS output and shows
-    // a "Suggested for {name}" label when it's an opponent's turn.
     debounceRef.current = setTimeout(() => {
-      void runMcts(300);
+      void runMcts(liveIterations);
     }, 900);
     return () => {
       if (debounceRef.current !== null) {
@@ -1553,6 +1876,8 @@ export default function AssistantApp({
     stateForEffect.numPlayers,
     simRunning,
     gameOver,
+    hideSuggestions,
+    mode,
   ]);
 
   // ===== Sim auto-step loop =====
@@ -1582,6 +1907,63 @@ export default function AssistantApp({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- simStepOnce closes over s
   }, [simRunning, simSpeedMs, gameOver, stateForEffect]);
+
+  // ===== Auto-export on game over =====
+  //
+  // Dumps the full game (final state + every logged action) as JSON so the
+  // user can analyse it later. Only fires once per game and only in
+  // Assistant mode — sim runs would produce a flood of files. The ref
+  // resets when a new game starts (gameLog cleared).
+  const autoExportedRef = useRef(false);
+  useEffect(() => {
+    if (mode !== 'assistant') return;
+    if (s.gameLog.length === 0) {
+      autoExportedRef.current = false;
+      return;
+    }
+    if (!gameOver) return;
+    if (autoExportedRef.current) return;
+    autoExportedRef.current = true;
+    try {
+      const stamp = new Date();
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const ts = `${stamp.getFullYear()}-${pad(stamp.getMonth() + 1)}-${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}`;
+      const winnerIdx = gameWinner;
+      const payload = {
+        schemaVersion: 1,
+        exportedAt: stamp.toISOString(),
+        mode,
+        numPlayers: s.numPlayers,
+        startingPlayer: s.startingPlayer,
+        mainPlayer: s.mainPlayer,
+        playerNames: s.players
+          .slice(0, s.numPlayers)
+          .map((_, i) => playerLabel(i)),
+        suggestionsHiddenDuringPlay: hideSuggestions,
+        winner: winnerIdx === null
+          ? null
+          : { index: winnerIdx, label: playerLabel(winnerIdx) },
+        finalState: engineState,
+        gameLog: s.gameLog,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], {
+        type: 'application/json',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `splendor-game-${ts}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // Revoke after a tick so the click navigation completes.
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setErrors((cur) => [...cur, `Game export failed: ${message}`]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally narrow deps
+  }, [gameOver, s.gameLog.length, mode]);
 
   // ===== Render helpers =====
 
@@ -1692,6 +2074,23 @@ export default function AssistantApp({
               ))}
             </div>
           </div>
+          <div className="field">
+            <label title="Who took the first turn — used to detect the end-of-round wrap point">
+              Started
+            </label>
+            <div className="pill-row">
+              {Array.from({ length: s.numPlayers }, (_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  className={`pill ${s.startingPlayer === i ? 'active' : ''}`}
+                  onClick={() => setStartingPlayer(i as PlayerIndex)}
+                >
+                  {playerLabel(i)}
+                </button>
+              ))}
+            </div>
+          </div>
           {mode === 'simulator' && (
             <div className="sim-controls" title="Engine plays both sides">
               <button
@@ -1740,6 +2139,40 @@ export default function AssistantApp({
             </div>
           )}
           <div className="header-actions">
+            {mode === 'assistant' && (
+              <button
+                type="button"
+                className={`hide-suggestions-btn ${hideSuggestions ? 'active' : ''}`}
+                onClick={() => setHideSuggestions((v) => !v)}
+                title={
+                  hideSuggestions
+                    ? 'Suggestions hidden — click to re-enable the assistant'
+                    : 'Hide MCTS suggestions and win-share pills so you play unaided'
+                }
+                aria-pressed={hideSuggestions}
+              >
+                {hideSuggestions ? 'Suggestions: off' : 'Suggestions: on'}
+              </button>
+            )}
+            {(!hideSuggestions || mode === 'simulator') && (
+              <label
+                className="live-iter-label"
+                title="MCTS iterations for live recommendations. Higher = stronger picks, slower per-turn refresh."
+              >
+                MCTS:
+                <select
+                  className="live-iter-select"
+                  value={liveIterations}
+                  onChange={(e) => setLiveIterations(Number(e.target.value))}
+                >
+                  {LIVE_ITERATION_OPTIONS.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <button
               type="button"
               className="undo-btn"
@@ -1790,6 +2223,15 @@ export default function AssistantApp({
 
       <section className="card">
         <h2>Face-up cards</h2>
+        {unfilledFaceUpSlots.length > 0 && !gameOver && (
+          <div className="unfilled-slots-banner">
+            ⚠ Refill {unfilledFaceUpSlots.length === 1 ? 'this slot' : `${unfilledFaceUpSlots.length} slots`} before the next move:{' '}
+            {unfilledFaceUpSlots
+              .map((u) => `T${u.tier} slot ${u.slot + 1}`)
+              .join(', ')}
+            . Click an empty slot below to pick its card.
+          </div>
+        )}
         {TIERS.slice().reverse().map((tier) => (
           <div key={tier} className="faceup-row tier-row">
             <span className="faceup-label">T{tier}</span>
@@ -1810,12 +2252,18 @@ export default function AssistantApp({
                       const grid = { ...prev.faceUp, [tier]: prev.faceUp[tier].slice() };
                       const prevCard = prev.faceUp[tier][i];
                       grid[tier][i] = picked;
-                      // Maintain seenIds: adding a card → record it; clearing
-                      // a slot manually → treat as correction and un-record
-                      // the previously-occupying card (so it can be re-picked).
+                      // Maintain seenIds correctly across every transition:
+                      //   null → card   : add the new card.
+                      //   card → null   : remove the old card (correction).
+                      //   cardA → cardB : add B, remove A (correction with
+                      //                   replacement — without the remove,
+                      //                   A leaks into seenIds forever and
+                      //                   silently hides itself from pickers).
                       const seen = new Set(prev.seenIds);
+                      if (prevCard !== null && prevCard !== undefined && prevCard.id !== picked?.id) {
+                        seen.delete(prevCard.id);
+                      }
                       if (picked !== null) seen.add(picked.id);
-                      else if (prevCard !== null && prevCard !== undefined) seen.delete(prevCard.id);
                       return { ...prev, faceUp: grid, seenIds: Array.from(seen) };
                     });
                   }}
@@ -1827,6 +2275,74 @@ export default function AssistantApp({
               <span className="deck-left">
                 · deck {tierDeckRemaining(s, tier).length}
               </span>
+              {(() => {
+                const tierTotal = ALL_CARDS.filter((c) => c.tier === tier).length;
+                const derivedSeenForTier = Array.from(derivedSeenIds).filter(
+                  (id) => id.startsWith(`T${tier}-`),
+                ).length;
+                const derivedDeck = tierTotal - derivedSeenForTier;
+                const drift = derivedDeck - tierDeckRemaining(s, tier).length;
+                if (drift === 0) return null;
+                return (
+                  <span
+                    className="deck-audit"
+                    title={
+                      `Audit (purchased+reserved+face-up) suggests ${derivedDeck} card${derivedDeck === 1 ? '' : 's'} remain in the T${tier} deck — `
+                      + `${drift > 0 ? `assistant has ${drift} extra seen-ID${drift === 1 ? '' : 's'} (drift/leak)` : `assistant is missing ${-drift} seen-ID${drift === -1 ? '' : 's'} (e.g., from a Mark-deck-empty)`}. `
+                      + `Click resync to replace seenIds with the audit set.`
+                    }
+                  >
+                    ⚠ audit: {derivedDeck}
+                    <button
+                      type="button"
+                      className="resync-deck"
+                      onClick={() => {
+                        const before = tierDeckRemaining(s, tier).length;
+                        const msg = `Resync T${tier} seenIds to the audit?\n\n`
+                          + `Before: ${before} card${before === 1 ? '' : 's'} in deck.\n`
+                          + `After:  ${derivedDeck} card${derivedDeck === 1 ? '' : 's'} in deck.\n\n`
+                          + `This overwrites the assistant's seen-IDs for T${tier} with cards actually accounted for in purchased + reserved + face-up.`;
+                        if (!window.confirm(msg)) return;
+                        setS((prev) => {
+                          // Replace just this tier's seen-IDs with the derived set.
+                          const otherTiers = prev.seenIds.filter(
+                            (id) => !id.startsWith(`T${tier}-`),
+                          );
+                          const thisTier = Array.from(derivedSeenIds).filter(
+                            (id) => id.startsWith(`T${tier}-`),
+                          );
+                          return { ...prev, seenIds: [...otherTiers, ...thisTier] };
+                        });
+                      }}
+                    >
+                      resync
+                    </button>
+                  </span>
+                );
+              })()}
+              {tierDeckRemaining(s, tier).length > 0
+                && s.faceUp[tier].some((c) => c === null) && (
+                <button
+                  type="button"
+                  className="mark-deck-empty"
+                  onClick={() => {
+                    if (!window.confirm(
+                      `Mark the T${tier} deck as empty?\n\n`
+                      + `This adds all ${tierDeckRemaining(s, tier).length} remaining T${tier} card(s) to "seen" so empty slots stay empty. `
+                      + `Use only if the physical deck is genuinely exhausted.`,
+                    )) return;
+                    setS((prev) => {
+                      const remaining = tierDeckRemaining(prev, tier);
+                      const seen = new Set(prev.seenIds);
+                      for (const c of remaining) seen.add(c.id);
+                      return { ...prev, seenIds: Array.from(seen) };
+                    });
+                  }}
+                  title={`Override: mark T${tier} deck as physically empty (recovers from tracking drift)`}
+                >
+                  deck empty?
+                </button>
+              )}
             </span>
           </div>
         ))}
@@ -1868,6 +2384,36 @@ export default function AssistantApp({
             onClose={() => setNoblePickerOpen(false)}
           />
         )}
+        {pendingBlindBuy !== null && (() => {
+          // Release every blind-reserve guess of this tier — those are MCTS
+          // placeholders, not real "seen" cards. The user should be able to
+          // pick any card legally still in the deck, regardless of which
+          // imaginary cards other blind reserves are pretending to be.
+          const pickerUnavailable = new Set(usedCardIds);
+          for (const id of blindGuessIdsByTier[pendingBlindBuy.tier]) {
+            pickerUnavailable.delete(id);
+          }
+          return (
+            <CardPickerModal
+              tier={pendingBlindBuy.tier}
+              selected={null}
+              unavailableIds={pickerUnavailable}
+              title={`Which T${pendingBlindBuy.tier} card is ${playerLabel(pendingBlindBuy.playerIdx)} buying from their blind reserve?`}
+              onPick={(picked) => {
+                if (picked !== null) {
+                  applyBlindReserveBuy(
+                    pendingBlindBuy.playerIdx,
+                    pendingBlindBuy.reservedIndex,
+                    picked,
+                  );
+                } else {
+                  setPendingBlindBuy(null);
+                }
+              }}
+              onClose={() => setPendingBlindBuy(null)}
+            />
+          );
+        })()}
         {pendingBlindReserveTier !== null && (
           <CardPickerModal
             tier={pendingBlindReserveTier}
@@ -1907,7 +2453,9 @@ export default function AssistantApp({
             isCurrent={idx === s.currentPlayer}
             player={p}
             unavailableIds={usedCardIds}
-            winRate={winShares?.[idx]}
+            blindGuessIdsByTier={blindGuessIdsByTier}
+            purchased={purchasedByPlayer[idx] ?? []}
+            winRate={hideSuggestions ? undefined : winShares?.[idx]}
             qualifyingNobles={s.nobles.filter((n) =>
               meetsNobleRequirement(p.bonuses, n.requirement),
             )}
@@ -1947,6 +2495,24 @@ export default function AssistantApp({
                 return { ...prev, players, seenIds: Array.from(seen) };
               })
             }
+            onReservedReveal={(i, picked) =>
+              setS((prev) => {
+                const players = prev.players.slice();
+                const target = players[idx];
+                if (target === undefined) return prev;
+                const reserved = target.reserved.slice();
+                const existing = reserved[i];
+                if (existing === undefined) return prev;
+                // Swap engine guess → real card, drop blind flag.
+                reserved[i] = { card: picked };
+                players[idx] = { ...target, reserved };
+                // Release the guess back into its tier deck, claim the real one.
+                const seen = new Set(prev.seenIds);
+                seen.delete(existing.card.id);
+                seen.add(picked.id);
+                return { ...prev, players, seenIds: Array.from(seen) };
+              })
+            }
           />
         ))}
       </section>
@@ -1957,8 +2523,8 @@ export default function AssistantApp({
             <div className="game-over-title">🏆 Game over</div>
             <div className="game-over-sub">
               <strong>{playerLabel(gameWinner)}</strong> wins with{' '}
-              {engineState.players[gameWinner]?.prestige ?? 0} prestige
-              {' '}({engineState.players[gameWinner]?.purchased.length ?? 0} cards).
+              {s.players[gameWinner]?.prestige ?? 0} prestige
+              {' '}({purchasedByPlayer[gameWinner]?.length ?? 0} cards).
               Tiebreaker: fewest purchased cards.
             </div>
           </div>
@@ -1969,17 +2535,21 @@ export default function AssistantApp({
             {playerLabel(s.startingPlayer)}).
           </div>
         )}
-        {!gameOver && s.currentPlayer !== s.mainPlayer && (
+        {!gameOver && (s.currentPlayer !== s.mainPlayer || hideSuggestions) && (
           <OpponentTurnPanel
             assistantState={s}
             playerLabel={playerLabel}
             onApply={onApply}
-            onSuggest={() => void runMcts(500)}
+            onSuggest={() => void runMcts(Math.max(liveIterations, 500))}
             thinking={thinking}
             errors={errors}
+            hideSuggestions={hideSuggestions}
+            onBuyBlindReserve={(playerIdx, reservedIndex, tier) =>
+              setPendingBlindBuy({ playerIdx, reservedIndex, tier })
+            }
           />
         )}
-        {!gameOver && s.currentPlayer === s.mainPlayer && (
+        {!gameOver && s.currentPlayer === s.mainPlayer && !hideSuggestions && (
           <>
             <div className="recommend-header">
               <strong>Your turn ({playerLabel(s.mainPlayer)})</strong>
@@ -1988,7 +2558,7 @@ export default function AssistantApp({
                 <button
                   type="button"
                   className="recompute-btn"
-                  onClick={() => void runMcts(500)}
+                  onClick={() => void runMcts(Math.max(liveIterations, 500))}
                   disabled={thinking}
                 >
                   Recompute (deeper)
@@ -2004,7 +2574,7 @@ export default function AssistantApp({
             )}
           </>
         )}
-        {recommendation && (
+        {!hideSuggestions && recommendation && (
           <>
             {s.currentPlayer !== s.mainPlayer && (
               <div className="rec-for-opponent-label">
@@ -2132,12 +2702,35 @@ export default function AssistantApp({
             <button
               type="button"
               className="analysis-btn"
-              onClick={() => void runAnalysis()}
+              onClick={() => void runAnalysis(analysisIterations)}
               disabled={analyzing}
-              title="Re-runs MCTS for every move and replays the game engine-vs-engine. Takes ~10–20 seconds."
+              title="Re-runs MCTS for every move and replays the game engine-vs-engine."
             >
-              {analyzing ? `Analysing — ${analysisProgress}` : 'Run deep analysis'}
+              {analyzing
+                ? `Analysing — ${analysisProgress}`
+                : `Run deep analysis (${analysisIterations} iter)`}
             </button>
+            <label className="analysis-iter-label">
+              Iterations:
+              <select
+                className="analysis-iter-select"
+                value={analysisIterations}
+                onChange={(e) => setAnalysisIterations(Number(e.target.value))}
+                disabled={analyzing}
+                title="Higher = more accurate MCTS evaluation, longer runtime"
+              >
+                <option value={300}>300 (fast)</option>
+                <option value={500}>500</option>
+                <option value={1000}>1000 (recommended)</option>
+                <option value={2000}>2000 (slow)</option>
+                <option value={5000}>5000 (very slow)</option>
+              </select>
+            </label>
+            {analysisIterations >= 1000 && (
+              <span className="analysis-iter-note">
+                ≈{Math.round((s.gameLog.length * 2 * analysisIterations) / 300 / 10) / 100}× longer than the 300-iter run
+              </span>
+            )}
             {analysis !== null && (
               <span className="analysis-cf-banner">
                 Engine-vs-engine replay winner:{' '}
@@ -2151,13 +2744,16 @@ export default function AssistantApp({
               {/* Per-player blunder summary */}
               <div className="blunder-grid">
                 {s.players.slice(0, s.numPlayers).map((_, pIdx) => {
-                  const moves = analysis.perTurn.filter((t) => t.actor === pIdx);
-                  const totalLoss = moves.reduce((a, m) => a + m.loss, 0);
-                  const blunders = moves
-                    .map((m, idx) => ({ loss: m.loss, turn: idx }))
-                    .filter((x) => x.loss >= 0.05)
+                  // Index moves with their global turn number BEFORE filtering,
+                  // so the "turn N" label matches the real game log.
+                  const movesWithIdx = analysis.perTurn
+                    .map((m, idx) => ({ ...m, turn: idx + 1 }))
+                    .filter((m) => m.actor === pIdx);
+                  const totalLoss = movesWithIdx.reduce((a, m) => a + m.loss, 0);
+                  const blunders = movesWithIdx
+                    .filter((m) => m.loss >= 0.05)
                     .sort((a, b) => b.loss - a.loss)
-                    .slice(0, 3);
+                    .slice(0, 5);
                   return (
                     <div key={pIdx} className="blunder-card">
                       <div className="blunder-name">{playerLabel(pIdx)}</div>
@@ -2171,11 +2767,28 @@ export default function AssistantApp({
                         <span className="blunder-label">Moves with ≥5% loss</span>
                         <span className="blunder-val">{blunders.length}</span>
                       </div>
-                      {blunders.length > 0 && (
-                        <div className="blunder-worst">
-                          Worst: turn{' '}
-                          {moves.findIndex((m) => m.loss === blunders[0]!.loss) + 1}{' '}
-                          (–{(blunders[0]!.loss * 100).toFixed(1)}%)
+                      {blunders.length > 0 ? (
+                        <details className="blunder-details">
+                          <summary>Top {blunders.length} blunder{blunders.length === 1 ? '' : 's'}</summary>
+                          <ol className="blunder-list">
+                            {blunders.map((b, k) => (
+                              <li key={k}>
+                                <div className="blunder-turn">
+                                  Turn {b.turn} · –{(b.loss * 100).toFixed(1)}%
+                                </div>
+                                <div className="blunder-played">
+                                  Played: {namifyNarration(b.actualNarration)}
+                                </div>
+                                <div className="blunder-best">
+                                  Engine: {namifyNarration(b.bestNarration)}
+                                </div>
+                              </li>
+                            ))}
+                          </ol>
+                        </details>
+                      ) : (
+                        <div className="blunder-worst clean">
+                          No moves with ≥5% loss — clean play.
                         </div>
                       )}
                     </div>
@@ -2620,6 +3233,10 @@ function CardPickerModal({
   onClose: () => void;
   title?: string;
 }) {
+  // Escape hatch: if our seenIds tracking has drifted and the card the user
+  // needs is missing, they can flip this to see every tier-T card.
+  const [showAll, setShowAll] = useState(false);
+
   // Show only cards still in the deck (or the currently-selected card if any,
   // so the user can keep their existing pick). Sort by bonus colour, then by
   // prestige ascending, then by total cost — same order in every tier so the
@@ -2632,7 +3249,7 @@ function CardPickerModal({
       c.cost.white + c.cost.blue + c.cost.green + c.cost.red + c.cost.black;
     return ALL_CARDS
       .filter((c) => c.tier === tier)
-      .filter((c) => !unavailableIds.has(c.id) || c.id === selected?.id)
+      .filter((c) => showAll || !unavailableIds.has(c.id) || c.id === selected?.id)
       .sort((a, b) => {
         const r = colorRank[a.bonus] - colorRank[b.bonus];
         if (r !== 0) return r;
@@ -2640,7 +3257,8 @@ function CardPickerModal({
         if (p !== 0) return p;
         return totalCost(a) - totalCost(b);
       });
-  }, [tier, unavailableIds, selected]);
+  }, [tier, unavailableIds, selected, showAll]);
+  const filteredOutCount = ALL_CARDS.filter((c) => c.tier === tier).length - cards.length;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2661,6 +3279,20 @@ function CardPickerModal({
         <div className="modal-header">
           <h3>{title ?? `Tier ${tier} cards`}</h3>
           <div className="modal-actions">
+            {(showAll || filteredOutCount > 0) && (
+              <button
+                type="button"
+                className={`picker-show-all ${showAll ? 'active' : ''}`}
+                onClick={() => setShowAll((v) => !v)}
+                title={
+                  showAll
+                    ? 'Hide cards the assistant thinks are already in play'
+                    : `Reveal ${filteredOutCount} hidden card${filteredOutCount === 1 ? '' : 's'} (use if the assistant has filtered out the one you need)`
+                }
+              >
+                {showAll ? 'Hide tracked' : `Show all (${filteredOutCount} hidden)`}
+              </button>
+            )}
             {selected && (
               <button type="button" className="modal-clear" onClick={() => onPick(null)}>
                 Clear slot
@@ -2675,13 +3307,14 @@ function CardPickerModal({
           <div className="picker-grid">
             {cards.map((c) => {
               const isSelected = selected?.id === c.id;
+              const isTracked = showAll && unavailableIds.has(c.id) && c.id !== selected?.id;
               return (
                 <button
                   key={c.id}
                   type="button"
-                  className={`picker-tile ${isSelected ? 'selected' : ''}`}
+                  className={`picker-tile ${isSelected ? 'selected' : ''} ${isTracked ? 'tracked-elsewhere' : ''}`}
                   onClick={() => onPick(c)}
-                  title={c.id}
+                  title={isTracked ? `${c.id} (assistant has this marked as already in play)` : c.id}
                 >
                   <CardArt card={c} />
                 </button>
@@ -2802,25 +3435,32 @@ function PlayerPanel({
   isCurrent,
   player,
   unavailableIds,
+  blindGuessIdsByTier,
+  purchased,
   winRate,
   qualifyingNobles,
   highlightReservedIndex,
   onName,
   onReservedAdd,
   onReservedRemove,
+  onReservedReveal,
 }: {
   idx: number;
   name: string;
   isCurrent: boolean;
   player: PlayerForm;
   unavailableIds: Set<string>;
+  blindGuessIdsByTier: Record<Tier, Set<string>>;
+  purchased: Card[];
   winRate: number | undefined;
   qualifyingNobles: Noble[];
   highlightReservedIndex: number | undefined;
   onName: (name: string) => void;
   onReservedAdd: (card: Card) => void;
   onReservedRemove: (i: number) => void;
+  onReservedReveal: (i: number, card: Card) => void;
 }) {
+  const [purchasedOpen, setPurchasedOpen] = useState(false);
   const [reservedOpen, setReservedOpen] = useState(false);
   // When the engine highlights one of our reserved cards (buy-from-reserve
   // recommendation), force the drawer open so the user can see which one
@@ -2830,6 +3470,11 @@ function PlayerPanel({
   // any more gems this turn; surface as a warning in the header.
   const gemTotal = GEM_COLORS.reduce((s, c) => s + player.gems[c], 0);
   const [addingReserved, setAddingReserved] = useState<Tier | null>(null);
+  // When set, opens the card picker so the user can replace the engine's
+  // guess on a blind reserve with the real card.
+  const [revealingReserved, setRevealingReserved] = useState<
+    { i: number; tier: Tier } | null
+  >(null);
   return (
     <div className={`player-panel ${isCurrent ? 'current' : ''}`}>
       <div className="player-header">
@@ -2946,7 +3591,16 @@ function PlayerPanel({
                 className={`reserved-card ${highlightReservedIndex === i ? 'highlighted' : ''}`}
               >
                 {r.blind === true ? (
-                  <BlindCardArt tier={r.card.tier} size="small" />
+                  <button
+                    type="button"
+                    className="reserved-reveal-btn"
+                    onClick={() => setRevealingReserved({ i, tier: r.card.tier })}
+                    title="Reveal — pick the actual card that was reserved"
+                    aria-label={`Reveal blind T${r.card.tier} reserve`}
+                  >
+                    <BlindCardArt tier={r.card.tier} size="small" />
+                    <span className="reveal-hint">reveal</span>
+                  </button>
                 ) : (
                   <CardArt card={r.card} size="small" />
                 )}
@@ -2988,9 +3642,65 @@ function PlayerPanel({
                 onClose={() => setAddingReserved(null)}
               />
             )}
+            {revealingReserved !== null && (
+              <CardPickerModal
+                tier={revealingReserved.tier}
+                selected={null}
+                unavailableIds={
+                  // Release every blind-reserve guess of this tier (across
+                  // all players) — they're MCTS placeholders, not real cards
+                  // out of the deck. The user should see every card still
+                  // legally available, regardless of what other reserves
+                  // pretend to be.
+                  (() => {
+                    const next = new Set(unavailableIds);
+                    for (const id of blindGuessIdsByTier[revealingReserved.tier]) {
+                      next.delete(id);
+                    }
+                    return next;
+                  })()
+                }
+                onPick={(picked) => {
+                  if (picked !== null) onReservedReveal(revealingReserved.i, picked);
+                  setRevealingReserved(null);
+                }}
+                onClose={() => setRevealingReserved(null)}
+              />
+            )}
           </div>
         )}
       </div>
+
+      {purchased.length > 0 && (
+        <div className="player-row purchased-row">
+          <button
+            type="button"
+            className="reserved-toggle"
+            onClick={() => setPurchasedOpen((o) => !o)}
+            title="Cards this player has bought so far (reconstructed from the game log)"
+          >
+            Purchased ({purchased.length}) {purchasedOpen ? '▼' : '▶'}
+          </button>
+          {purchasedOpen && (
+            <div className="purchased-list">
+              {TIERS.slice().reverse().map((tier) => {
+                const cardsForTier = purchased.filter((c) => c.tier === tier);
+                if (cardsForTier.length === 0) return null;
+                return (
+                  <div key={tier} className="purchased-tier-row">
+                    <span className="purchased-tier-label">T{tier}</span>
+                    <div className="purchased-cards">
+                      {cardsForTier.map((c, i) => (
+                        <CardArt key={`${c.id}-${i}`} card={c} size="small" />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -3009,6 +3719,8 @@ function OpponentTurnPanel({
   onSuggest,
   thinking,
   errors,
+  hideSuggestions,
+  onBuyBlindReserve,
 }: {
   assistantState: AssistantState;
   playerLabel: (idx: number) => string;
@@ -3016,6 +3728,12 @@ function OpponentTurnPanel({
   onSuggest: () => void;
   thinking: boolean;
   errors: string[];
+  hideSuggestions: boolean;
+  onBuyBlindReserve: (
+    playerIdx: number,
+    reservedIndex: number,
+    tier: Tier,
+  ) => void;
 }) {
   const state = useMemo(() => buildGameState(assistantState), [assistantState]);
   const opp = state.players[state.currentPlayer];
@@ -3024,11 +3742,28 @@ function OpponentTurnPanel({
 
   const [actionType, setActionType] = useState<OpponentActionType | null>(null);
   const [take3Colors, setTake3Colors] = useState<Color[]>([]);
+  // Take-2 and reserve normally commit on click. They only turn into a
+  // two-step flow when the action breaches the gem cap and we first need to
+  // know which gems go back.
+  const [take2Color, setTake2Color] = useState<Color | null>(null);
+  const [pendingReserve, setPendingReserve] = useState<CardSource | null>(null);
+  // Gems handed back to the supply this turn (10-gem cap rule).
+  const [discard, setDiscard] = useState<GemPool>(emptyGemPool());
+
+  const resetPicker = () => {
+    setTake3Colors([]);
+    setTake2Color(null);
+    setPendingReserve(null);
+    setDiscard(emptyGemPool());
+  };
 
   // Reset sub-state when the opponent changes (turn just advanced).
   useEffect(() => {
     setActionType(null);
     setTake3Colors([]);
+    setTake2Color(null);
+    setPendingReserve(null);
+    setDiscard(emptyGemPool());
   }, [oppIdx]);
 
   if (opp === undefined) return null;
@@ -3036,40 +3771,119 @@ function OpponentTurnPanel({
   const oppGems =
     opp.gems.white + opp.gems.blue + opp.gems.green + opp.gems.red +
     opp.gems.black + opp.gems.gold;
-  const headroom = GEM_HAND_LIMIT - oppGems;
   const goldAvailable = state.gemSupply.gold > 0;
-  const reserveGemAdded = goldAvailable ? 1 : 0;
+
+  // ===== 10-gem cap =====
+  // The cap is a *return* rule, not a take restriction: a player sitting on 10
+  // gems may still take (that's how a one-gem swap works), they just put the
+  // excess back. The returned gems ride along on the action so apply() moves
+  // them to the supply in the same atomic step.
+
+  const poolTotal = (p: GemPool): number =>
+    GEM_COLORS.reduce((n, c) => n + p[c], 0);
+  const discardTotal = poolTotal(discard);
+  const takeTwoPool = (c: Color): GemPool => {
+    const pool = emptyGemPool();
+    pool[c] = 2;
+    return pool;
+  };
+  const reservePool = (): GemPool => {
+    const pool = emptyGemPool();
+    if (goldAvailable) pool.gold = 1;
+    return pool;
+  };
+  const discardNeeded = (taken: GemPool): number =>
+    Math.max(0, oppGems + poolTotal(taken) - GEM_HAND_LIMIT);
+  const discardReady = (taken: GemPool): boolean =>
+    discardTotal === discardNeeded(taken);
+  const discardArg = (taken: GemPool): GemPool | undefined =>
+    discardNeeded(taken) > 0 ? discard : undefined;
+  const describeDiscard = (): string =>
+    GEM_COLORS.filter((c) => discard[c] > 0)
+      .map((c) => `${discard[c]} ${c}`)
+      .join(' + ');
+
+  /** Gem-return picker. Renders nothing unless the take breaches the cap. */
+  const renderDiscard = (taken: GemPool) => {
+    const need = discardNeeded(taken);
+    if (need === 0) return null;
+    const bump = (c: GemColor) => {
+      const held = opp.gems[c] + taken[c];
+      setDiscard((prev) => {
+        const canAdd = prev[c] < held && poolTotal(prev) < need;
+        // A colour that can't go higher resets to 0, so a misclick costs one
+        // more click instead of needing a separate clear button.
+        return { ...prev, [c]: canAdd ? prev[c] + 1 : 0 };
+      });
+    };
+    return (
+      <div className="picker-discard">
+        <p className="picker-hint">
+          That would put {oppName} at {oppGems + poolTotal(taken)} gems — pick{' '}
+          {need} to return ({discardTotal}/{need} chosen). Click a gem to add
+          one; click past its max to clear that colour.
+        </p>
+        <div className="picker-color-row">
+          {GEM_COLORS.map((c) => {
+            const held = opp.gems[c] + taken[c];
+            return (
+              <button
+                key={c}
+                type="button"
+                className={`color-pick discard-pick ${discard[c] > 0 ? 'selected' : ''}`}
+                style={{
+                  background: c === 'gold' ? GOLD_HEX : COLOR_HEX[c],
+                  color: c === 'white' || c === 'gold' ? '#1f2937' : '#fff',
+                }}
+                onClick={() => bump(c)}
+                disabled={held === 0}
+                title={`${oppName} holds ${held} ${c} after taking`}
+                aria-label={`return ${c}`}
+              >
+                {c === 'gold' ? '★' : c.charAt(0).toUpperCase()}
+                {discard[c] > 0 ? `−${discard[c]}` : ''}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   // ===== Per-action-type pickers =====
 
   const renderTake3 = () => {
     const avail = COLORS.filter((c) => state.gemSupply[c] > 0);
-    const k = Math.min(3, avail.length, headroom);
-    const overcap = headroom < 1;
+    const k = Math.min(3, avail.length);
+    const taken = emptyGemPool();
+    for (const c of take3Colors) taken[c] += 1;
     const toggle = (c: Color) => {
+      // Changing what's taken changes how much must go back — start over.
+      setDiscard(emptyGemPool());
       setTake3Colors((prev) => {
         if (prev.includes(c)) return prev.filter((x) => x !== c);
         if (prev.length >= k) return prev;
         return [...prev, c];
       });
     };
+    const ready = take3Colors.length > 0 && discardReady(taken);
     const applyTake3 = () => {
-      if (take3Colors.length === 0) return;
-      onApply({ type: 'take3', colors: take3Colors });
+      if (!ready) return;
+      onApply({
+        type: 'take3',
+        colors: take3Colors,
+        discard: discardArg(taken),
+      });
     };
-    if (overcap) {
-      return (
-        <p className="picker-disabled">
-          {oppName} already holds {oppGems} gems — can't take any more without
-          discarding. If they discarded, edit gems manually.
-        </p>
-      );
+    if (k === 0) {
+      return <p className="picker-disabled">The gem supply is empty.</p>;
     }
     return (
       <>
         <p className="picker-hint">
           Click up to {k} different color{k === 1 ? '' : 's'}. Click again to
-          deselect.
+          deselect. Taking 1 or 2 is legal — that's how a swap at the 10-gem
+          cap works.
         </p>
         <div className="picker-color-row">
           {COLORS.map((c) => {
@@ -3095,15 +3909,18 @@ function OpponentTurnPanel({
             );
           })}
         </div>
+        {renderDiscard(taken)}
         <button
           type="button"
           className="opp-apply"
           onClick={applyTake3}
-          disabled={take3Colors.length === 0}
+          disabled={!ready}
         >
           Apply ({take3Colors.length === 0
             ? 'pick at least 1 color'
-            : `take ${take3Colors.join(', ')}`})
+            : `take ${take3Colors.join(', ')}${
+                discardTotal > 0 ? `, return ${describeDiscard()}` : ''
+              }`})
         </button>
       </>
     );
@@ -3113,13 +3930,6 @@ function OpponentTurnPanel({
     const eligible = COLORS.filter(
       (c) => state.gemSupply[c] >= TAKE_2_MIN_PILE,
     );
-    if (headroom < 2) {
-      return (
-        <p className="picker-disabled">
-          {oppName} can't fit 2 more gems (currently has {oppGems}).
-        </p>
-      );
-    }
     if (eligible.length === 0) {
       return (
         <p className="picker-disabled">
@@ -3127,6 +3937,17 @@ function OpponentTurnPanel({
         </p>
       );
     }
+    const pick = (c: Color) => {
+      // Under the cap this is still a one-click action; over it we need the
+      // returns first.
+      if (discardNeeded(takeTwoPool(c)) === 0) {
+        onApply({ type: 'take2', color: c });
+        return;
+      }
+      setDiscard(emptyGemPool());
+      setTake2Color(c);
+    };
+    const pending = take2Color === null ? null : takeTwoPool(take2Color);
     return (
       <>
         <p className="picker-hint">
@@ -3140,12 +3961,12 @@ function OpponentTurnPanel({
               <button
                 key={c}
                 type="button"
-                className="color-pick"
+                className={`color-pick ${take2Color === c ? 'selected' : ''}`}
                 style={{
                   background: COLOR_HEX[c],
                   color: c === 'white' ? '#1f2937' : '#fff',
                 }}
-                onClick={() => onApply({ type: 'take2', color: c })}
+                onClick={() => pick(c)}
                 disabled={disabled}
                 aria-label={`take2 ${c}`}
               >
@@ -3154,19 +3975,41 @@ function OpponentTurnPanel({
             );
           })}
         </div>
+        {take2Color !== null && pending !== null && (
+          <>
+            {renderDiscard(pending)}
+            <button
+              type="button"
+              className="opp-apply"
+              onClick={() => {
+                if (!discardReady(pending)) return;
+                onApply({
+                  type: 'take2',
+                  color: take2Color,
+                  discard: discardArg(pending),
+                });
+              }}
+              disabled={!discardReady(pending)}
+            >
+              Apply (take 2 {take2Color}
+              {discardTotal > 0 ? `, return ${describeDiscard()}` : ''})
+            </button>
+          </>
+        )}
       </>
     );
   };
 
   const renderReserve = () => {
-    if (reserveGemAdded > headroom) {
-      return (
-        <p className="picker-disabled">
-          {oppName} can't take the gold from reserving — they're at the
-          {' '}10-gem cap. Edit their gems manually if they discarded.
-        </p>
-      );
-    }
+    const taken = reservePool();
+    const startReserve = (source: CardSource) => {
+      if (discardNeeded(taken) === 0) {
+        onApply({ type: 'reserve', source });
+        return;
+      }
+      setDiscard(emptyGemPool());
+      setPendingReserve(source);
+    };
     return (
       <>
         <p className="picker-hint">
@@ -3185,10 +4028,7 @@ function OpponentTurnPanel({
                       type="button"
                       className="picker-card-btn"
                       onClick={() =>
-                        onApply({
-                          type: 'reserve',
-                          source: { kind: 'faceUp', tier, slot: i },
-                        })
+                        startReserve({ kind: 'faceUp', tier, slot: i })
                       }
                       aria-label={`reserve ${card.id}`}
                     >
@@ -3202,9 +4042,7 @@ function OpponentTurnPanel({
                   type="button"
                   className="picker-blind-btn"
                   disabled={state.decks[tier].length === 0}
-                  onClick={() =>
-                    onApply({ type: 'reserve', source: { kind: 'deck', tier } })
-                  }
+                  onClick={() => startReserve({ kind: 'deck', tier })}
                 >
                   Blind from T{tier}
                 </button>
@@ -3212,6 +4050,27 @@ function OpponentTurnPanel({
             </div>
           ))}
         </div>
+        {pendingReserve !== null && (
+          <>
+            {renderDiscard(taken)}
+            <button
+              type="button"
+              className="opp-apply"
+              onClick={() => {
+                if (!discardReady(taken)) return;
+                onApply({
+                  type: 'reserve',
+                  source: pendingReserve,
+                  discard: discardArg(taken),
+                });
+              }}
+              disabled={!discardReady(taken)}
+            >
+              Apply (reserve
+              {discardTotal > 0 ? `, return ${describeDiscard()}` : ''})
+            </button>
+          </>
+        )}
       </>
     );
   };
@@ -3245,14 +4104,26 @@ function OpponentTurnPanel({
     for (let index = 0; index < opp.reserved.length; index++) {
       const r = opp.reserved[index];
       if (r === undefined) continue;
+      const blind = r.reservedFrom === 'deck';
       const payment = computePayment(r.card, opp);
-      if (payment !== null) {
+      if (blind) {
+        // Always show blind reserves — the real card identity may have a
+        // cheaper cost than the engine's guess, making it affordable when
+        // the guess isn't. We re-check affordability after reveal.
+        buyable.push({
+          kind: 'reserve',
+          card: r.card,
+          index,
+          payment: payment ?? { white: 0, blue: 0, green: 0, red: 0, black: 0, gold: 0 },
+          blind: true,
+        });
+      } else if (payment !== null) {
         buyable.push({
           kind: 'reserve',
           card: r.card,
           index,
           payment,
-          blind: r.reservedFrom === 'deck',
+          blind: false,
         });
       }
     }
@@ -3280,7 +4151,12 @@ function OpponentTurnPanel({
                 key={key}
                 type="button"
                 className="picker-card-btn"
-                onClick={() =>
+                onClick={() => {
+                  if (b.kind === 'reserve' && b.blind) {
+                    // Defer the buy until the user picks the real identity.
+                    onBuyBlindReserve(oppIdx, b.index, b.card.tier);
+                    return;
+                  }
                   onApply(
                     b.kind === 'faceUp'
                       ? {
@@ -3293,8 +4169,8 @@ function OpponentTurnPanel({
                           source: { kind: 'reserve', index: b.index },
                           payment: b.payment,
                         },
-                  )
-                }
+                  );
+                }}
                 aria-label={
                   b.kind === 'reserve' && b.blind
                     ? `buy blind T${b.card.tier} reserve`
@@ -3330,22 +4206,24 @@ function OpponentTurnPanel({
             className={`opp-type-btn ${actionType === t ? 'active' : ''}`}
             onClick={() => {
               setActionType(t);
-              setTake3Colors([]);
+              resetPicker();
             }}
           >
             {t === 'take3' ? 'Take 3' : t === 'take2' ? 'Take 2' : t === 'reserve' ? 'Reserve' : 'Buy'}
           </button>
         ))}
         <span className="opp-bar-spacer" />
-        <button
-          type="button"
-          className="opp-suggest-btn"
-          onClick={onSuggest}
-          disabled={thinking}
-          title={`Run MCTS as if ${oppName} were choosing optimally`}
-        >
-          {thinking ? '…' : 'Suggest'}
-        </button>
+        {!hideSuggestions && (
+          <button
+            type="button"
+            className="opp-suggest-btn"
+            onClick={onSuggest}
+            disabled={thinking}
+            title={`Run MCTS as if ${oppName} were choosing optimally`}
+          >
+            {thinking ? '…' : 'Suggest'}
+          </button>
+        )}
       </div>
 
       {errors.length > 0 && (

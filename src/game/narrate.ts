@@ -37,18 +37,23 @@ export const narrate = (before: GameState, action: Action): string => {
   const turn = before.turnNumber;
   const p = before.currentPlayer;
   const tag = `T${turn} P${p}`;
+  // Gems handed back to hit the 10-gem cap. Only take/reserve carry them.
+  const returned = (d: GemPool | undefined): string =>
+    d === undefined || GEM_COLORS.every((c) => d[c] === 0)
+      ? ''
+      : ` returning ${formatGems(d)}`;
   switch (action.type) {
     case 'take3': {
       const cs = action.colors.map((c) => colorAbbrev[c]).join('+');
-      return `${tag} take3 ${cs}`;
+      return `${tag} take3 ${cs}${returned(action.discard)}`;
     }
     case 'take2':
-      return `${tag} take2 ${colorAbbrev[action.color]}${colorAbbrev[action.color]}`;
+      return `${tag} take2 ${colorAbbrev[action.color]}${colorAbbrev[action.color]}${returned(action.discard)}`;
     case 'reserve': {
       if (action.source.kind === 'faceUp') {
-        return `${tag} reserve ${cardSummary(before, action.source, p)}`;
+        return `${tag} reserve ${cardSummary(before, action.source, p)}${returned(action.discard)}`;
       }
-      return `${tag} reserve blind from tier ${action.source.tier}`;
+      return `${tag} reserve blind from tier ${action.source.tier}${returned(action.discard)}`;
     }
     case 'buy': {
       const summary = cardSummary(before, action.source, p);
