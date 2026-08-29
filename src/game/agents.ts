@@ -1,7 +1,7 @@
 import { applyTurn } from './apply';
 import { evaluate } from './evaluate';
 import { legalActions } from './legalActions';
-import { mctsBestAction, type RolloutPolicy } from './mcts';
+import { mctsBestAction, type RewardShaping, type RolloutPolicy } from './mcts';
 import { searchBestAction } from './search';
 import type { Rng } from './setup';
 import type { Action, GameState } from './types';
@@ -88,6 +88,7 @@ export const mctsAgent = (
   rng: Rng = Math.random,
   policy: RolloutPolicy = 'heuristic',
   determinization: boolean = false,
+  rewardShaping: RewardShaping = 'discounted',
 ): Agent => (state) =>
   mctsBestAction(state, {
     iterations,
@@ -95,6 +96,7 @@ export const mctsAgent = (
     rng,
     rolloutPolicy: policy,
     determinization,
+    rewardShaping,
   });
 
 /** Same as mctsAgent but with a wall-clock budget instead of iteration count. */
@@ -104,6 +106,7 @@ export const mctsTimeAgent = (
   rng: Rng = Math.random,
   policy: RolloutPolicy = 'heuristic',
   determinization: boolean = false,
+  rewardShaping: RewardShaping = 'discounted',
 ): Agent => (state) =>
   mctsBestAction(state, {
     timeMs,
@@ -111,4 +114,5 @@ export const mctsTimeAgent = (
     rng,
     rolloutPolicy: policy,
     determinization,
+    rewardShaping,
   });

@@ -7,6 +7,15 @@ import type { Action, Card, GameState, PlayerIndex } from './types';
 
 export type RolloutPolicy = 'random' | 'heuristic';
 
+/**
+ * How a rollout's end state is turned into a reward vector.
+ *
+ *   'binary'     — original scheme: 1/0 at decided games, squashed absolute
+ *                  evaluator score otherwise. Kept so we can A/B against it.
+ *   'discounted' — banded and depth-aware (see `terminalReward`). Default.
+ */
+export type RewardShaping = 'binary' | 'discounted';
+
 export type MctsOptions = {
   /** Number of MCTS iterations. Mutually exclusive with `timeMs`. */
   iterations?: number;
@@ -22,6 +31,8 @@ export type MctsOptions = {
   c?: number;
   /** How rollouts pick actions. 'heuristic' is the new (Phase 3 v2) default. */
   rolloutPolicy?: RolloutPolicy;
+  /** How leaf states are scored. See `RewardShaping`. */
+  rewardShaping?: RewardShaping;
   /**
    * ISMCTS-style deck shuffling. When true, each iteration begins by
    * shuffling every tier's deck so the agent reasons about deck order as
@@ -50,6 +61,10 @@ type Node = {
   untriedActions: Action[];
   visits: number;
   totalReward: number[];
+  /** Plies from the root. Rollouts add their own length to this so that
+   *  "how soon does this line finish" is measured from the root, not from
+   *  wherever in the tree the rollout happened to start. */
+  depth: number;
 };
 
 const makeNode = (
@@ -64,6 +79,7 @@ const makeNode = (
   untriedActions: legalActions(state),
   visits: 0,
   totalReward: new Array(state.players.length).fill(0),
+  depth: parent === null ? 0 : parent.depth + 1,
 });
 
 const ucb1 = (
@@ -101,8 +117,86 @@ const pickByUCB1 = (node: Node, c: number): Node => {
  * outcomes (0 / 1) during backprop. The 1/5 scale is a starting heuristic;
  * Splendor evaluator scores typically range 0..30 in non-terminal states,
  * and sigmoid(30/5) ≈ 0.998 so winning evaluations saturate appropriately.
+ *
+ * Only used by the 'binary' shaping now — that saturation turned out to be
+ * a liability, see the band comment below.
  */
 const squash = (x: number): number => 1 / (1 + Math.exp(-x / 5));
+
+const sigmoid = (x: number): number => 1 / (1 + Math.exp(-x));
+
+/**
+ * Reward bands for the 'discounted' shaping.
+ *
+ * Every leaf value lands in [0, 1], and the three kinds of leaf are kept in
+ * strictly separated ranges:
+ *
+ *   lost game      [0, BAND_LO)
+ *   undecided      [BAND_LO, BAND_HI]   — rollout hit the depth cap
+ *   won game       (BAND_HI, 1]
+ *
+ * The separation matters: under the old scheme a *heuristic estimate* could
+ * outscore an actual win, because squash() saturates to ~0.998 for any decent
+ * position while a win is 1.0.
+ *
+ * Inside the win band the value decays with the number of plies the line took,
+ * so winning in three moves beats winning in ten. Without that decay every
+ * winning line scores exactly 1.0. That is not a rounding artefact — in the
+ * position that prompted this change, 16 of 30 root moves scored exactly 1.0
+ * with identical visit counts, so the search had nothing to choose between a
+ * +7 prestige buy and `take3`, and picked whichever it expanded first.
+ */
+const BAND_LO = 0.35;
+const BAND_HI = 0.65;
+/**
+ * Band edges, exported so the UI can explain what a candidate's score means:
+ * above `hi` the search reached a win in most simulations, below `lo` it
+ * reached a loss, in between the rollouts ran out of depth and the number is
+ * a heuristic estimate.
+ */
+export const REWARD_BANDS = { lo: BAND_LO, hi: BAND_HI } as const;
+/** Per-ply decay applied to decided games. */
+const SPEED_DECAY = 0.85;
+/**
+ * Sigmoid width for an undecided leaf, in evaluator points of *margin* (my
+ * score minus the best opponent's). Absolute scores run 0..40 and saturate
+ * any sigmoid; the margin is centred on 0 and rarely leaves ±20.
+ */
+const MARGIN_SCALE = 8;
+
+/** Reward vector for a decided game, `plies` from the root. */
+const terminalReward = (
+  numPlayers: number,
+  winnerIdx: PlayerIndex,
+  plies: number,
+): number[] => {
+  const speed = SPEED_DECAY ** plies;
+  const win = BAND_HI + (1 - BAND_HI) * speed;
+  const loss = BAND_LO * (1 - speed);
+  const out = new Array<number>(numPlayers);
+  for (let i = 0; i < numPlayers; i++) out[i] = i === winnerIdx ? win : loss;
+  return out;
+};
+
+/** Reward vector for an undecided game: each player's evaluator margin. */
+const estimateReward = (state: GameState, evalFn: Feature): number[] => {
+  const n = state.players.length;
+  const scores = new Array<number>(n);
+  for (let i = 0; i < n; i++) scores[i] = evalFn(state, i as PlayerIndex);
+  const out = new Array<number>(n);
+  for (let i = 0; i < n; i++) {
+    let bestOther = -Infinity;
+    for (let j = 0; j < n; j++) {
+      if (j === i) continue;
+      const s = scores[j];
+      if (s !== undefined && s > bestOther) bestOther = s;
+    }
+    const mine = scores[i] ?? 0;
+    const margin = Number.isFinite(bestOther) ? mine - bestOther : 0;
+    out[i] = BAND_LO + (BAND_HI - BAND_LO) * sigmoid(margin / MARGIN_SCALE);
+  }
+  return out;
+};
 
 /**
  * Look up the card a buy action targets, regardless of source (face-up
@@ -195,6 +289,8 @@ const rollout = (
   maxTurns: number,
   rng: Rng,
   policy: RolloutPolicy,
+  pliesFromRoot: number,
+  shaping: RewardShaping,
 ): number[] => {
   let s = state;
   let turns = 0;
@@ -204,15 +300,17 @@ const rollout = (
     s = applyTurn(s, action);
     turns++;
   }
-  const out: number[] = new Array(s.players.length);
+  const n = s.players.length;
   if (isTerminal(s)) {
     const w = winner(s);
-    for (let i = 0; i < s.players.length; i++) out[i] = i === w ? 1 : 0;
+    if (shaping === 'discounted') return terminalReward(n, w, pliesFromRoot + turns);
+    const out: number[] = new Array(n);
+    for (let i = 0; i < n; i++) out[i] = i === w ? 1 : 0;
     return out;
   }
-  for (let i = 0; i < s.players.length; i++) {
-    out[i] = squash(evalFn(s, i as PlayerIndex));
-  }
+  if (shaping === 'discounted') return estimateReward(s, evalFn);
+  const out: number[] = new Array(n);
+  for (let i = 0; i < n; i++) out[i] = squash(evalFn(s, i as PlayerIndex));
   return out;
 };
 
@@ -302,23 +400,27 @@ export type MctsStats = {
 const finalizeStats = (root: Node): MctsStats => {
   const numPlayers = root.totalReward.length;
   const me = root.currentPlayer;
-  const candidates: MctsCandidate[] = [];
-  let bestChild: Node | null = null;
-  let bestVisits = -1;
+  // Keep each candidate next to its node so the winRates below come from
+  // whichever child we actually recommend, after sorting.
+  const ranked: { candidate: MctsCandidate; child: Node }[] = [];
   for (const child of root.children) {
     const action = child.parentAction;
     if (action === null) continue;
     const meanReward = child.visits === 0
       ? 0
       : (child.totalReward[me] ?? 0) / child.visits;
-    candidates.push({ action, visits: child.visits, meanReward });
-    if (child.visits > bestVisits) {
-      bestVisits = child.visits;
-      bestChild = child;
-    }
+    ranked.push({ candidate: { action, visits: child.visits, meanReward }, child });
   }
-  candidates.sort((a, b) => b.visits - a.visits);
+  // Most-visited wins, but break ties on mean reward. Visit counts come out
+  // exactly equal more often than you would think — UCB1 hands every arm the
+  // same budget when their means are indistinguishable — and without the
+  // second key we would return whichever action happened to be expanded first.
+  ranked.sort((a, b) =>
+    (b.candidate.visits - a.candidate.visits)
+    || (b.candidate.meanReward - a.candidate.meanReward));
+  const candidates = ranked.map((r) => r.candidate);
   const best = candidates[0];
+  const bestChild = ranked[0]?.child ?? null;
   if (best === undefined) {
     throw new Error('mctsBestActionWithStats: no expansions performed');
   }
@@ -360,6 +462,7 @@ export const mctsBestActionWithStats = (
   const c = options.c ?? DEFAULT_C;
   const rolloutDepth = options.rolloutDepth ?? DEFAULT_ROLLOUT_DEPTH;
   const rolloutPolicy = options.rolloutPolicy ?? 'heuristic';
+  const rewardShaping = options.rewardShaping ?? 'discounted';
   const determinization = options.determinization ?? false;
   const root = makeNode(rootState, null, null);
   if (root.untriedActions.length === 0) {
@@ -402,7 +505,9 @@ export const mctsBestActionWithStats = (
     }
 
     // Simulation.
-    const reward = rollout(state, evalFn, rolloutDepth, rng, rolloutPolicy);
+    const reward = rollout(
+      state, evalFn, rolloutDepth, rng, rolloutPolicy, node.depth, rewardShaping,
+    );
 
     // Backpropagation.
     backpropagate(node, reward);
