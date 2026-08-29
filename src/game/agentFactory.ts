@@ -58,6 +58,11 @@ export const ALL_AGENT_NAMES = [
   'mcts-500',
   'mcts-1000',
   'mcts-2000',
+  // Pre-Phase-G reward shaping (1/0 terminals, squashed absolute eval).
+  // Kept only so `compare` can A/B it against the current shaping.
+  'mcts-500-binary',
+  'mcts-1000-binary',
+  'mcts-2000-binary',
   'mcts-500ms',
   'mcts-1s',
   'mcts-3s',
@@ -141,6 +146,12 @@ export const makeAgent = (name: string, seed: number = 0): Agent | null => {
       return mctsAgent(1000, evaluateV3, rng);
     case 'mcts-2000':
       return mctsAgent(2000, evaluateV3, rng);
+    case 'mcts-500-binary':
+      return mctsAgent(500, evaluateV3, rng, 'heuristic', false, 'binary');
+    case 'mcts-1000-binary':
+      return mctsAgent(1000, evaluateV3, rng, 'heuristic', false, 'binary');
+    case 'mcts-2000-binary':
+      return mctsAgent(2000, evaluateV3, rng, 'heuristic', false, 'binary');
     case 'mcts-500ms':
       return mctsTimeAgent(500, evaluateV3, rng);
     case 'mcts-1s':

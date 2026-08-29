@@ -263,6 +263,93 @@ The 47 pp advantage over greedy confirms the determinization
 machinery isn't broken — it's correctly producing strong play, just
 not strictly more optimal than plain MCTS in this environment.
 
+## Experiment 14 — reward shaping: bands and a speed discount
+
+**Where it came from.** Not from the tournament — from reviewing a real
+logged 3-player game. On turn 76 the assistant recommended `take3 W`
+while a `buy T3-018` was on the board that scored +7 in one move (a
+4-prestige card whose black bonus also completed a 3-prestige noble).
+Taking it would have ended the game three turns earlier. The user
+followed the recommendation and won by two points, one blunder away
+from losing.
+
+**Diagnosis.** Dumping the root's candidates at full precision:
+
+```
+1.000000000000    71v  take3 W
+1.000000000000    71v  take3 B
+...
+1.000000000000    71v  buy T3-018 (4p, +black) paying 2R 2g
+...
+candidates with meanReward EXACTLY 1.0: 16 / 30
+```
+
+Sixteen root moves, identical scores, identical visit counts. Not a
+rounding artefact — a genuine 16-way tie.
+
+Two independent causes:
+
+1. **No time preference.** Terminal rollouts paid 1 for a win and 0 for
+   a loss. From a position this far ahead, the heuristic playout policy
+   wins from *every* move (measured: 68–100% per candidate), so every
+   move scored 1.0. "Win in one move" and "win in six" were literally
+   the same number.
+2. **The tie-break was positional.** `finalizeStats` picked the first
+   child reaching the maximum visit count, i.e. whichever action
+   `legalActions` happened to list first.
+
+A third, smaller thing fell out of the same investigation: `squash(x) =
+sigmoid(x/5)` is saturated over the whole useful range. Evaluator scores
+run 0..40; sigmoid hits 0.75 at x=5.5 and 0.99 at x=23. So a *heuristic
+estimate* of a good position (~0.998) could outscore a real, slower win,
+and the assistant's percentage column read as a wall of 100%.
+
+**Change.** `RewardShaping = 'binary' | 'discounted'`, defaulting to
+`discounted`:
+
+- Three separated bands — loss `[0, 0.35)`, undecided `[0.35, 0.65]`,
+  win `(0.65, 1]` — so no heuristic estimate can ever outrank a real
+  win, and no real loss can outrank an estimate.
+- Inside the win band, value decays as `0.85^plies`, counting plies from
+  the *root* (nodes carry a `depth` so a rollout starting deep in the
+  tree isn't credited as fast).
+- Undecided leaves score on *margin* — my evaluator score minus the best
+  opponent's — through `sigmoid(margin / 8)`. Centred on zero, so it
+  actually uses its band instead of pinning at the top.
+- `finalizeStats` breaks visit ties on mean reward.
+
+`'binary'` is kept, and wired up as `mcts-500-binary` / `-1000-` /
+`-2000-`, purely so `compare` can A/B the two.
+
+**Does it find the move? (turn 76, 10 seeds per cell)**
+
+| shaping | 100 it | 300 it | 1000 it | 3000 it |
+|---|---|---|---|---|
+| binary     | 0/10 | 0/10 | 0/10 | 0/10 |
+| discounted | 0/10 | 0/10 | **10/10** | **10/10** |
+
+Worth separating the two fixes. On turn 82 — the actual winning turn —
+the tie-break change alone was enough: binary shaping plus the new
+tie-break already finds `T3-018` 10/10 at every budget, where the old
+code recommended a 1-prestige card. Turn 76 is the harder case and needs
+the discount; the tie-break does nothing for it, because the scores
+there were exactly equal rather than merely close.
+
+**The budget cliff is the interesting part.** Below ~1000 iterations the
+discount doesn't rescue turn 76 either: with ~30 root candidates and 300
+iterations each arm gets ~10 visits, and a mean-reward gap of ~0.06
+cannot survive that much noise. The fix buys resolution, not
+clairvoyance. Progressive bias (a heuristic prior in UCB1, decaying as
+`1/(visits+1)`) is the standard way to make low budgets rank sensibly and
+is the obvious next experiment.
+
+**Effect on game review.** The Phase-G blunder review previously scored
+this game at `totalLoss 7.2%, meanLoss 0.26%` and never listed turn 76 —
+because loss is measured against MCTS's own pick, so a saturated search
+reports zero regret exactly where it is blindest. It now reports
+`totalLoss 14.4%` with turn 76 as the top entry at −8.4%, seven times
+larger than anything else in the game.
+
 ## What's left for Phase 3
 
 - **Better rollouts.** Random rollouts are weak — a greedy rollout

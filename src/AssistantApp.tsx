@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { apply, applyAllReveals, isTerminal, winner } from './game/apply';
 import { legalActions } from './game/legalActions';
 import { computePayment, meetsNobleRequirement } from './game/gems';
-import { mctsBestActionWithStats } from './game/mcts';
+import { mctsBestActionWithStats, REWARD_BANDS } from './game/mcts';
 import type { MctsCandidate } from './game/mcts';
 import { evaluateV9 } from './game/evaluate';
 import { ALL_CARDS, ALL_NOBLES } from './game/data';
@@ -340,6 +340,52 @@ const tierDeckRemaining = (s: AssistantState, tier: Tier): Card[] => {
   return ALL_CARDS.filter((c) => c.tier === tier && !seen.has(c.id));
 };
 
+/**
+ * Per-player purchased cards, recovered from the game log. PlayerForm only
+ * stores aggregate bonus counts, but every buy entry carries the snapshot it
+ * was played from, so the actual card is recoverable exactly.
+ *
+ * The engine needs this: `winner()` breaks prestige ties on fewest purchased
+ * cards, and that tiebreak decides a real fraction of endgame rollouts. Left
+ * empty, MCTS scores those ties off card counts accumulated *inside* the
+ * rollout, which is not the same thing at all.
+ *
+ * Best-effort: cards bought before the user started logging (a game entered
+ * mid-play) are not recoverable, so the count can understate.
+ */
+const purchasedFromLog = (s: AssistantState): Card[][] => {
+  const out: Card[][] = Array.from({ length: s.numPlayers }, () => []);
+  for (const entry of s.gameLog) {
+    if (entry.action.type !== 'buy') continue;
+    const buyerIdx = entry.snapshotBefore.currentPlayer;
+    if (buyerIdx < 0 || buyerIdx >= s.numPlayers) continue;
+    let card: Card | undefined;
+    if (entry.action.source.kind === 'faceUp') {
+      const { tier, slot } = entry.action.source;
+      card = entry.snapshotBefore.faceUp[tier][slot] ?? undefined;
+    } else {
+      const buyer = entry.snapshotBefore.players[buyerIdx];
+      card = buyer?.reserved[entry.action.source.index]?.card;
+    }
+    if (card !== undefined) out[buyerIdx]!.push(card);
+  }
+  return out;
+};
+
+/**
+ * Tooltip for a candidate move's score. The number is MCTS's mean reward for
+ * that branch, which is not a win probability — see REWARD_BANDS.
+ */
+const CANDIDATE_SCORE_HELP =
+  `MCTS score for this move — not a win probability. `
+  + `Above ${Math.round(REWARD_BANDS.hi * 100)}% the search reached a win in most `
+  + `simulations, and the higher it goes the sooner those wins arrive. `
+  + `${Math.round(REWARD_BANDS.lo * 100)}–${Math.round(REWARD_BANDS.hi * 100)}% means the `
+  + `simulations ran out of depth, so it is a heuristic estimate. `
+  + `Below ${Math.round(REWARD_BANDS.lo * 100)}% most simulations were lost. `
+  + `Only compare it against the other moves listed here, and trust it more the `
+  + `more visits the branch got.`;
+
 const buildGameState = (s: AssistantState): GameState => {
   const decks = {
     1: tierDeckRemaining(s, 1),
@@ -347,9 +393,10 @@ const buildGameState = (s: AssistantState): GameState => {
     3: tierDeckRemaining(s, 3),
   };
   const nobleById = new Map(ALL_NOBLES.map((n) => [n.id, n]));
-  const players: PlayerState[] = s.players.slice(0, s.numPlayers).map((p) => ({
+  const purchased = purchasedFromLog(s);
+  const players: PlayerState[] = s.players.slice(0, s.numPlayers).map((p, i) => ({
     gems: { ...p.gems },
-    purchased: [],
+    purchased: purchased[i] ?? [],
     // The form only carries face-up-source reserves (see ReservedFormCard
     // comment); rebuild them with the right `reservedFrom` tag here.
     reserved: p.reserved.map((r) => ({
@@ -1707,52 +1754,15 @@ export default function AssistantApp({
   // End-of-round terminality: someone hit 15 prestige AND we've wrapped
   // back to the starting seat (every player got an equal number of turns).
   const gameOver = useMemo(() => isTerminal(engineState), [engineState]);
-  // Per-player purchased cards, reconstructed from gameLog. The form-side
-  // PlayerForm only stores aggregate bonus counts; the actual card history
-  // lives in gameLog buy entries (snapshotBefore + action lets us recover
-  // each bought card exactly). Used by PlayerPanel to render mini card art
-  // and as the tiebreaker for gameWinner.
-  const purchasedByPlayer = useMemo(() => {
-    const out: Card[][] = Array.from({ length: s.numPlayers }, () => []);
-    for (const entry of s.gameLog) {
-      if (entry.action.type !== 'buy') continue;
-      const buyerIdx = entry.snapshotBefore.currentPlayer;
-      if (buyerIdx < 0 || buyerIdx >= s.numPlayers) continue;
-      let card: Card | undefined;
-      if (entry.action.source.kind === 'faceUp') {
-        const { tier, slot } = entry.action.source;
-        card = entry.snapshotBefore.faceUp[tier][slot] ?? undefined;
-      } else {
-        const buyer = entry.snapshotBefore.players[buyerIdx];
-        card = buyer?.reserved[entry.action.source.index]?.card;
-      }
-      if (card !== undefined) out[buyerIdx]!.push(card);
-    }
-    return out;
-  }, [s.gameLog, s.numPlayers]);
-  const gameWinner = useMemo(() => {
-    if (!gameOver) return null;
-    // Engine's winner() uses purchased.length for the tiebreaker, but
-    // buildGameState resets purchased to [] (PlayerForm only stores aggregate
-    // bonuses). So we redo the tiebreaker here with the real card counts
-    // reconstructed from gameLog.
-    let bestIdx = 0;
-    let bestPrestige = -Infinity;
-    let bestCards = Infinity;
-    for (let i = 0; i < s.numPlayers; i++) {
-      const prestige = s.players[i]?.prestige ?? 0;
-      const cards = purchasedByPlayer[i]?.length ?? 0;
-      if (
-        prestige > bestPrestige
-        || (prestige === bestPrestige && cards < bestCards)
-      ) {
-        bestPrestige = prestige;
-        bestCards = cards;
-        bestIdx = i;
-      }
-    }
-    return bestIdx;
-  }, [gameOver, s.numPlayers, s.players, purchasedByPlayer]);
+  // Per-player purchased cards. Same reconstruction the engine state uses —
+  // here it drives PlayerPanel's mini card art.
+  const purchasedByPlayer = useMemo(() => purchasedFromLog(s), [s]);
+  // engineState now carries the real purchased lists, so the engine's own
+  // tiebreak (highest prestige, then fewest cards) is the one that applies.
+  const gameWinner = useMemo(
+    () => (gameOver ? winner(engineState) : null),
+    [gameOver, engineState],
+  );
   // "Game ending after this round" warning while at least one player is at
   // 15+ but we haven't wrapped to startingPlayer yet.
   const gameEndingSoon = useMemo(
@@ -2638,7 +2648,7 @@ export default function AssistantApp({
                         <span className="rec-option-summary">
                           <ActionSummary state={engineState} action={a.action} />
                         </span>
-                        <span className="alt-meta">
+                        <span className="alt-meta" title={CANDIDATE_SCORE_HELP}>
                           {(a.meanReward * 100).toFixed(0)}% · {a.visits} visits
                         </span>
                       </button>
